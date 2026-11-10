@@ -166,3 +166,8 @@ Open sign-up plus live audio means more strangers and more risk, so these are pa
 1. **Confirm 18+**, or plan a later parental-consent path for 16–17-year-old exam students (needs DPDP-compliant verifiable consent).
 2. **Who moderates the report queue** in week 4 and after launch (founder only, or 1–2 trusted volunteers), and the target response time.
 3. **Soft-launch size:** a hard cap on accounts in the first weeks to stay inside free tiers and keep moderation manageable.
+
+## Report handling (placeholder, decided 2026-11-11)
+- Moderator: one team member, to be named before launch.
+- Check the report queue once a day.
+- Harassment or safety reports: act within 24 hours (warn, remove, or dismiss).
