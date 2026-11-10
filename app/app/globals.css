@@ -1,0 +1,143 @@
+/* Hush Hall styles: warm wood + paper, soft contrast, no red anywhere.
+   Palette is defined once here so a designer can retune it in one place. */
+
+:root {
+  --paper: #f6efe2;        /* page background, old library paper */
+  --paper-2: #efe4d0;      /* slightly darker paper for cards */
+  --ink: #3b2f25;          /* main text, warm dark brown */
+  --ink-soft: #6f5e4e;     /* secondary text */
+  --wood: #a47148;         /* desk top */
+  --wood-dark: #7a4f2f;    /* desk edge */
+  --wood-light: #c69c72;   /* desk highlight */
+  --sage: #7d9a78;         /* calm accent for focus / accept */
+  --sage-soft: #dfe8d8;    /* soft sage background */
+  --amber: #d9a441;        /* break / lamp glow */
+  --amber-soft: #f4e3bb;   /* soft amber background */
+  --line: #dccdb4;         /* hairlines */
+  --shadow: 0 2px 10px rgba(80, 55, 30, 0.12); /* soft shadow */
+  --radius: 12px;          /* rounded corners everywhere */
+}
+
+* { box-sizing: border-box; } /* predictable sizing */
+
+html, body { margin: 0; padding: 0; } /* no default gaps */
+
+body {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.6), transparent 60%), /* window light */
+    repeating-linear-gradient(0deg, rgba(120, 90, 60, 0.025) 0 2px, transparent 2px 6px), /* paper grain */
+    var(--paper); /* base colour */
+  color: var(--ink); /* body text */
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; /* local fonts only */
+  line-height: 1.5; /* easy reading */
+  min-height: 100vh; /* fill the window */
+}
+
+h1, h2, h3 { font-family: Georgia, "Iowan Old Style", "Times New Roman", serif; font-weight: 600; margin: 0 0 0.4em; } /* bookish headings */
+
+a { color: var(--wood-dark); } /* warm links */
+
+main { max-width: 1100px; margin: 0 auto; padding: 24px 20px 140px; } /* centred column, room for focus bar */
+
+/* ---------- top bar ---------- */
+.topbar { display: flex; align-items: baseline; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--line); background: rgba(246, 239, 226, 0.9); }
+.brand { font-family: Georgia, serif; font-size: 1.3rem; font-weight: 700; text-decoration: none; color: var(--ink); }
+.tagline { color: var(--ink-soft); font-size: 0.9rem; }
+
+/* ---------- generic pieces ---------- */
+.card { background: var(--paper-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); } /* paper card */
+.muted { color: var(--ink-soft); } /* secondary text */
+.small { font-size: 0.85rem; } /* small print */
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; } /* simple horizontal stack */
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; } /* responsive cards */
+
+button, .btn {
+  font: inherit; cursor: pointer; border-radius: 999px; padding: 8px 16px; /* pill buttons */
+  border: 1px solid var(--wood-dark); background: var(--wood); color: #fffaf0; /* wood button */
+  transition: transform 0.08s ease, background 0.2s ease; text-decoration: none; display: inline-block;
+}
+button:hover, .btn:hover { background: var(--wood-dark); } /* darker on hover */
+button:active { transform: translateY(1px); } /* tactile press */
+button:disabled { opacity: 0.5; cursor: not-allowed; } /* disabled look */
+button.ghost { background: transparent; color: var(--wood-dark); } /* secondary button */
+button.ghost:hover { background: rgba(164, 113, 72, 0.08); }
+button.sage { background: var(--sage); border-color: #5f7b5b; } /* accept / start */
+button.sage:hover { background: #5f7b5b; }
+
+input[type="text"], select, textarea {
+  font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); /* paper inputs */
+  background: #fffdf8; color: var(--ink); width: 100%;
+}
+label { display: block; font-size: 0.9rem; color: var(--ink-soft); margin: 10px 0 4px; } /* field labels */
+
+.toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--ink-soft); cursor: pointer; margin: 0; } /* checkbox toggles */
+
+/* ---------- lobby ---------- */
+.hero { margin: 12px 0 24px; } /* lobby greeting */
+.avatars { display: flex; gap: 6px; flex-wrap: wrap; } /* avatar picker */
+.avatar-pick { font-size: 1.4rem; width: 44px; height: 44px; padding: 0; border-radius: 50%; background: #fffdf8; border: 1px solid var(--line); color: inherit; }
+.avatar-pick.on { border: 2px solid var(--wood-dark); background: var(--amber-soft); } /* selected avatar */
+.door { display: block; text-decoration: none; color: inherit; border-top: 6px solid var(--wood); } /* hall "door" card */
+.door:hover { transform: translateY(-2px); } /* lift on hover */
+.door h3 { margin-bottom: 2px; }
+
+/* ---------- hall ---------- */
+.hall-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.rule { font-style: italic; color: var(--ink-soft); } /* hall house rule */
+.floor {
+  background: repeating-linear-gradient(90deg, #e8d9bf 0 60px, #e2d1b4 60px 120px); /* wooden floorboards */
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 22px 18px; box-shadow: inset 0 0 30px rgba(120, 80, 40, 0.08);
+}
+.desk-row { display: grid; grid-template-columns: 28px repeat(3, minmax(0, 1fr)) 36px repeat(3, minmax(0, 1fr)); gap: 12px; align-items: stretch; margin-bottom: 16px; } /* row label + 3 desks + aisle + 3 desks */
+.row-label { font-family: Georgia, serif; color: var(--ink-soft); align-self: center; text-align: center; } /* A/B/C/D */
+.aisle { border-left: 1px dashed rgba(122, 79, 47, 0.25); margin-left: 17px; } /* centre aisle */
+
+.desk {
+  position: relative; min-height: 104px; border-radius: 10px; padding: 10px 10px 8px; text-align: left; /* one desk */
+  background: linear-gradient(180deg, var(--wood-light), var(--wood) 70%); border: 1px solid var(--wood-dark);
+  color: #fffaf0; box-shadow: 0 3px 0 var(--wood-dark), var(--shadow); cursor: pointer; display: flex; flex-direction: column; gap: 4px;
+}
+.desk:hover { filter: brightness(1.04); } /* subtle hover */
+.desk .num { position: absolute; top: 6px; right: 8px; font-size: 0.75rem; opacity: 0.85; font-family: Georgia, serif; } /* seat number plate */
+.desk.vacant { background: linear-gradient(180deg, #d9bf9c, #c8a77f 70%); color: #5a4330; border-style: dashed; } /* empty desk */
+.desk.vacant .hint { margin-top: auto; font-size: 0.8rem; opacity: 0.8; } /* "take this seat" hint */
+.desk.usual { outline: 2px dotted var(--sage); outline-offset: 2px; } /* your returning seat */
+.desk.mine { outline: 3px solid var(--sage); outline-offset: 2px; } /* where you sit now */
+.desk .who { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 0.92rem; }
+.desk .ava { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 1.1rem; box-shadow: 0 0 0 2px rgba(255, 250, 240, 0.6); } /* avatar with lamp colour */
+.desk .topic { font-size: 0.8rem; background: rgba(255, 250, 240, 0.92); color: var(--ink); padding: 3px 7px; border-radius: 4px; margin-top: auto; box-shadow: 0 1px 2px rgba(0,0,0,0.1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* paper topic card */
+.desk .state { font-size: 0.7rem; opacity: 0.9; } /* focusing / on a break */
+.lamp { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; } /* tiny status lamp */
+.lamp.focus { background: var(--sage-soft); box-shadow: 0 0 6px var(--sage-soft); }
+.lamp.break { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+.lamp.idle { background: #fffaf0; opacity: 0.6; }
+
+/* ---------- focus bar (bottom) ---------- */
+.focusbar {
+  position: fixed; left: 0; right: 0; bottom: 0; background: linear-gradient(180deg, #5c3d26, #4a311f); color: #fbf3e4; /* dark wood shelf */
+  padding: 14px 24px; box-shadow: 0 -6px 20px rgba(60, 40, 20, 0.25); z-index: 20;
+}
+.focusbar .inner { max-width: 1100px; margin: 0 auto; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+.clock { font-family: Georgia, serif; font-size: 2.6rem; letter-spacing: 1px; font-variant-numeric: tabular-nums; } /* big calm countdown */
+.focusbar .topic-line { font-size: 1.05rem; }
+.focusbar button.ghost { color: #fbf3e4; border-color: #c69c72; }
+.focusbar button.ghost:hover { background: rgba(255, 255, 255, 0.08); }
+.progress { height: 4px; background: rgba(255, 255, 255, 0.15); border-radius: 4px; overflow: hidden; margin-top: 6px; width: 260px; max-width: 60vw; } /* phase progress */
+.progress > div { height: 100%; background: var(--sage-soft); transition: width 1s linear; }
+.progress.break > div { background: var(--amber); }
+
+/* ---------- overlays / dialogs ---------- */
+.veil { position: fixed; inset: 0; background: rgba(59, 47, 37, 0.35); display: grid; place-items: center; z-index: 30; padding: 20px; } /* dim background */
+.dialog { width: min(440px, 100%); background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 22px; box-shadow: 0 20px 50px rgba(60, 40, 20, 0.3); } /* paper dialog */
+.dialog .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; flex-wrap: wrap; }
+.break-card { text-align: center; background: var(--amber-soft); } /* gentle break screen */
+.break-card .big { font-size: 2.4rem; margin: 6px 0; }
+
+/* ---------- quiet notes (join requests) ---------- */
+.notes { position: fixed; right: 20px; bottom: 120px; width: 300px; display: flex; flex-direction: column; gap: 10px; z-index: 25; } /* stack of paper notes */
+.note { background: #fffdf3; border: 1px solid var(--line); border-left: 5px solid var(--sage); border-radius: 10px; padding: 12px; box-shadow: var(--shadow); transform: rotate(-0.4deg); } /* folded note */
+.note.held { border-left-color: var(--line); font-size: 0.85rem; color: var(--ink-soft); } /* request held during focus */
+.room-banner { background: var(--sage-soft); border: 1px solid #b9cbb3; border-radius: var(--radius); padding: 10px 14px; margin-bottom: 14px; } /* study room status */
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 110px; background: #fffdf3; border: 1px solid var(--line); padding: 8px 14px; border-radius: 999px; box-shadow: var(--shadow); z-index: 40; font-size: 0.9rem; } /* small quiet message */
+
+.history li { margin: 4px 0; } /* lobby history list */
