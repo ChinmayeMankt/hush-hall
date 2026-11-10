@@ -30,13 +30,13 @@ async function sit(page, seat, topic) {
 const a = await ctx.newPage(); // first tab
 await enter(a, "Chinmaye", 0); // owl avatar
 await shot(a, "00-lobby.png"); // lobby screenshot
-await a.goto(`${BASE}/hall/main-reading`); // walk in
+await a.goto(`${BASE}/hall/main-reading?view=2d`); // walk in
 await a.waitForSelector(".desk"); // desks rendered
 
 // Tab B = a second (local) student.
 const b = await ctx.newPage(); // second tab
 await enter(b, "Riya", 2); // leaf avatar
-await b.goto(`${BASE}/hall/main-reading`); // same hall
+await b.goto(`${BASE}/hall/main-reading?view=2d`); // same hall
 await b.waitForSelector(".desk"); // desks rendered
 await sit(b, "C4", "Plant tissue culture notes"); // B sits
 await a.waitForSelector('[aria-label^="Desk C4, Riya"]', { timeout: 10000 }); // A sees B live

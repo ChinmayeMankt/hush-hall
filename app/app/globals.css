@@ -141,3 +141,31 @@ label { display: block; font-size: 0.9rem; color: var(--ink-soft); margin: 10px 
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 110px; background: #fffdf3; border: 1px solid var(--line); padding: 8px 14px; border-radius: 999px; box-shadow: var(--shadow); z-index: 40; font-size: 0.9rem; } /* small quiet message */
 
 .history li { margin: 4px 0; } /* lobby history list */
+
+/* ---------- 3D hall ---------- */
+.hall3d { position: relative; width: 100%; height: min(72vh, 720px); border-radius: var(--radius); overflow: hidden; border: 1px solid #3a2416; background: #2a1b12; box-shadow: var(--shadow); } /* canvas frame */
+.hall3d.loading { display: grid; place-items: center; color: #e8d6b4; font-family: Georgia, serif; } /* placeholder while the 3D bundle loads */
+.tag3d { background: #f7edd6; color: #3b2f25; border: 1px solid #c9b48a; border-radius: 6px; padding: 3px 8px; font-size: 11px; line-height: 1.25; text-align: center; white-space: nowrap; max-width: 170px; box-shadow: 0 2px 6px rgba(0,0,0,0.35); animation: tagfloat 6s ease-in-out infinite; transition: opacity 0.6s ease; } /* paper topic tag */
+.tag3d.dim { opacity: 0.45; } /* other tags fade while one desk is hovered */
+.tag3d-who { font-weight: 600; font-size: 10.5px; color: #6f5e4e; } /* avatar + nickname */
+.tag3d-topic { font-family: Georgia, serif; font-size: 12px; overflow: hidden; text-overflow: ellipsis; } /* topic */
+@keyframes tagfloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } } /* very gentle float */
+.hover3d { background: #fffdf3; color: #3b2f25; border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; font-size: 12px; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,0.35); } /* hover hint */
+.hover3d.card-preview { min-width: 170px; } /* nickname/avatar/topic preview */
+.ava-sm { width: 24px; height: 24px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 14px; } /* small avatar chip */
+.hall3d-wrap { position: relative; } /* frame for the canvas + HUD */
+.hud3d { position: absolute; top: 14px; right: 14px; z-index: 22; background: rgba(247, 237, 214, 0.94); border: 1px solid #c9b48a; border-radius: 12px; padding: 10px 14px; min-width: 200px; box-shadow: 0 6px 20px rgba(0,0,0,0.3); } /* minimal first-person timer */
+.hud-clock { font-family: Georgia, serif; font-size: 2rem; font-variant-numeric: tabular-nums; line-height: 1.1; } /* calm countdown */
+.hud-topic { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* topic line */
+.break-mini { position: fixed; left: 50%; transform: translateX(-50%); bottom: 24px; z-index: 30; background: #f4e3bb; border: 1px solid #d9c08a; border-radius: 12px; padding: 10px 16px; max-width: 420px; box-shadow: 0 6px 20px rgba(0,0,0,0.3); } /* non-blocking break card */
+button.small { padding: 4px 10px; font-size: 0.85rem; } /* compact buttons */
+@media (prefers-reduced-motion: reduce) {
+  .tag3d { animation: none; } /* no floating tags */
+  * { transition: none !important; } /* no UI easing */
+}
+.label-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; } /* DOM labels over the canvas */
+.lbl { position: absolute; left: 0; top: 0; will-change: transform; visibility: hidden; } /* positioned by the projector each frame */
+.tag3d::after { content: ""; position: absolute; left: 50%; bottom: -9px; width: 1px; height: 8px; background: rgba(247, 237, 214, 0.7); } /* thin thread down to the desk */
+.tag3d { position: relative; } /* anchor for the thread */
+.zoom3d { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px; z-index: 5; } /* zoom buttons */
+.zoom3d button { background: rgba(247, 237, 214, 0.9); width: 34px; padding: 4px 0; } /* paper buttons on the dark scene */

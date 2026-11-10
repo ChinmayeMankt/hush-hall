@@ -111,7 +111,20 @@ export function RecapDialog(props: {
 }
 
 // ---- Break card: gentle, skippable, no guilt ----
-export function BreakCard(props: { clock: string; onSkip: () => void; onHide: () => void }) {
+export function BreakCard(props: { clock: string; compact?: boolean; onSkip: () => void; onHide: () => void }) {
+  // Compact variant: a small paper card that leaves the 3D room visible.
+  if (props.compact) {
+    return (
+      <div className="break-mini" role="status">
+        <b>Short break · {props.clock}</b>
+        <div className="small muted">Stand, stretch, sip water, look out the window. Your desk stays yours.</div>
+        <div className="row" style={{ gap: 6, marginTop: 6 }}>
+          <button type="button" className="ghost small" onClick={props.onHide}>Hide</button>
+          <button type="button" className="sage small" onClick={props.onSkip}>Back to focus</button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="veil" role="dialog" aria-modal="true">
       <div className="dialog break-card">

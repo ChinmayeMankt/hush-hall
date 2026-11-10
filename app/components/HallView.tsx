@@ -11,6 +11,12 @@ import { HALLS, ROWS, DESKS_PER_ROW, demoMembers, hallById } from "@/lib/halls";
 import { getPresence, type JoinRequest, type Member, type Phase } from "@/lib/presence"; // presence layer
 import { addSitting, loadProfile, saveProfile, setUsualSeat, usualSeat, type Profile } from "@/lib/profile"; // local storage helpers
 import { softChime } from "@/lib/chime"; // optional gentle sound
+import { startRain, stopRain } from "@/lib/ambient"; // optional rain ambience
+import { hasWebGL, prefersReducedMotion } from "@/lib/env"; // capability checks
+import dynamic from "next/dynamic"; // lazy-load the 3D bundle
+
+// The 3D hall is loaded only in the browser and only when used (keeps the 2D view light).
+const Hall3D = dynamic(() => import("./three/Hall3D"), { ssr: false, loading: () => <div className="hall3d loading">Lighting the lamps…</div> }); // lazy 3D
 
 // Format milliseconds as mm:ss for the clock.
 function mmss(ms: number) {
@@ -50,6 +56,13 @@ export default function HallView({ hallId }: { hallId: string }) {
   const [room, setRoom] = useState<string | null>(null); // current small study room name
   const [toast, setToast] = useState<string | null>(null); // one quiet message at a time
 
+  // ---- view settings ----
+  const [webgl, setWebgl] = useState(false); // can this device draw 3D?
+  const [view, setView] = useState<"3d" | "2d">("2d"); // which hall view is shown
+  const [reduced, setReduced] = useState(false); // prefers-reduced-motion
+  const [rain, setRain] = useState(false); // rain ambience (off by default)
+  const [forceHover, setForceHover] = useState<string | null>(null); // ?hover=B1 for previews
+
   const phaseRef = useRef(phase); // latest phase for presence callbacks
   phaseRef.current = phase; // keep it current every render
 
@@ -66,9 +79,32 @@ export default function HallView({ hallId }: { hallId: string }) {
     setProfile(p); // store it
     setPlan({ f: p.focusMin, b: p.breakMin }); // last rhythm
     setUsual(usualSeat(hallId)); // returning seat
-    const sp = Number(new URLSearchParams(window.location.search).get("speed")); // demo speed
+    const q = new URLSearchParams(window.location.search); // URL options
+    const sp = Number(q.get("speed")); // demo speed
     if (sp > 0) setSpeed(sp); // apply if given
+    const ok = hasWebGL(); // 3D possible?
+    setWebgl(ok); // remember
+    const saved = (q.get("view") ?? localStorage.getItem("hh.view")) as "3d" | "2d" | null; // URL or saved choice
+    setView(ok && saved !== "2d" ? "3d" : "2d"); // 3D by default when available
+    setForceHover(q.get("hover")); // optional forced hover
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)"); // OS motion setting
+    setReduced(prefersReducedMotion()); // initial value
+    const onMq = () => setReduced(mq.matches); // live updates
+    mq.addEventListener("change", onMq); // listen
+    return () => mq.removeEventListener("change", onMq); // cleanup
   }, [hallId]);
+
+  // Rain ambience follows the toggle; always stops when leaving the hall.
+  useEffect(() => {
+    if (rain) startRain(); else stopRain(); // follow toggle
+    return () => stopRain(); // stop on unmount
+  }, [rain]);
+
+  // Switch between the 3D hall and the simple card view, and remember it.
+  const chooseView = (v: "3d" | "2d") => {
+    setView(v); // show it
+    localStorage.setItem("hh.view", v); // remember for next time
+  };
 
   // Build my presence record from current state.
   const me: Member | null = useMemo(() => {
@@ -286,6 +322,13 @@ export default function HallView({ hallId }: { hallId: string }) {
             <input type="checkbox" checked={profile.chime} onChange={(e) => patchProfile({ chime: e.target.checked })} />
             Soft chime
           </span>
+          <span className="toggle">
+            <input type="checkbox" checked={rain} onChange={(e) => setRain(e.target.checked)} />
+            Soft rain
+          </span>
+          {webgl && (
+            <button className="ghost small" onClick={() => chooseView(view === "3d" ? "2d" : "3d")}>{view === "3d" ? "Simple view" : "3D hall"}</button>
+          )}
           {/* Hall hopping: only while standing, so a sitting always ends with a recap */}
           <select aria-label="Move to another hall" value={hallId} disabled={!!seat} title={seat ? "Stand up to hop halls" : "Move to another hall"} onChange={(e) => { window.location.href = `/hall/${e.target.value}`; }} style={{ width: "auto" }}>
             {HALLS.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
@@ -302,7 +345,27 @@ export default function HallView({ hallId }: { hallId: string }) {
         </div>
       )}
 
-      {/* Floor plan: rows of desks with a centre aisle */}
+      {/* 3D reading room when WebGL is available and chosen */}
+      {view === "3d" && webgl ? (
+        <div className="hall3d-wrap">
+          <Hall3D seatMap={seatMap} myId={profile.id} mySeat={seat} reduced={reduced} rain={rain} onPick={onDesk} hoverSeat={forceHover} />
+          {/* Minimal timer HUD sits inside the 3D frame, top-right, like a paper note */}
+          {seat && (
+            <div className="hud3d">
+              <div className="small muted">{phase === "focus" ? "Deep focus" : phase === "break" ? "Short break" : "Ready when you are"} · Desk {seat}</div>
+              <div className="hud-clock">{phaseEndsAt ? mmss(phaseEndsAt - now) : "--:--"}</div>
+              <div className="small hud-topic">{topic}</div>
+              <div className="row" style={{ gap: 6, marginTop: 8 }}>
+                {held.length > 0 && <span className="small muted">A note waits for your break</span>}
+                {phase === "focus" && <button className="ghost small" onClick={() => { bankFocus(); startPhase("break", plan.b); }}>Break</button>}
+                {phase !== "focus" && <button className="sage small" onClick={() => startPhase("focus", plan.f)}>{phase === "idle" ? "Next round" : "Back to focus"}</button>}
+                <button className="ghost small" onClick={() => setRecapOpen(true)}>Stand up</button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+      /* Floor plan: rows of desks with a centre aisle (simple 2D view and WebGL fallback) */
       <div className="floor">
         {ROWS.map((r) => (
           <div className="desk-row" key={r}>
@@ -316,10 +379,11 @@ export default function HallView({ hallId }: { hallId: string }) {
           </div>
         ))}
       </div>
+      )}
       {!seat && <p className="muted small" style={{ marginTop: 10 }}>Tap a vacant desk to sit. Tap someone’s desk to see their topic or ask to study together. Open another tab to see live presence. (A few desks are local demo students.)</p>}
 
-      {/* Bottom focus bar while seated */}
-      {seat && (
+      {/* Bottom focus bar while seated (2D view) */}
+      {seat && !(view === "3d" && webgl) && (
         <div className="focusbar">
           <div className="inner">
             <div>
@@ -368,7 +432,7 @@ export default function HallView({ hallId }: { hallId: string }) {
         />
       )}
       {recapOpen && <RecapDialog topic={topic} minutes={Math.round((focusedMs + (phase === "focus" ? Math.max(0, Math.min(now, phaseEndsAt ?? now) - phaseStart) * speed : 0)) / 60000)} onSave={standUp} onBack={() => setRecapOpen(false)} />}
-      {seat && phase === "break" && !breakHidden && <BreakCard clock={mmss(left)} onSkip={() => startPhase("focus", plan.f)} onHide={() => setBreakHidden(true)} />}
+      {seat && phase === "break" && !breakHidden && <BreakCard clock={mmss(left)} compact={view === "3d" && webgl} onSkip={() => startPhase("focus", plan.f)} onHide={() => setBreakHidden(true)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
