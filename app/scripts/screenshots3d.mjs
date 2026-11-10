@@ -53,8 +53,9 @@ await sit(b, "C4", "Plant tissue culture notes"); // B sits
 const a = await ctx.newPage(); // tab A
 await enter(a, "Chinmaye", 0); // owl avatar
 await a.waitForSelector(".tag3d", { timeout: 15000 }); // tags rendered
-await settle(a, 2500); // let tags settle
+await settle(a, 15000); // let tags settle and the VRM characters download
 await shot(a, "3d-overview.png"); // overview
+await shot(a, "vrm-overview.png"); // same view, kept under the VRM name for the avatar review
 if (ONLY === "overview") { await browser.close(); process.exit(0); } // quick iteration mode
 
 // Hover a real occupied desk (B1 = demo student Meera).
@@ -87,10 +88,16 @@ await shot(a, "3d-first-person-break.png"); // break in first-person
 
 // Close-up of neighbours' faces (dev-only ?cam= preview camera) from a third tab.
 const c = await ctx.newPage(); // tab C, just watching
-await c.goto(`${BASE}/hall/main-reading?view=3d&cam=1.0,1.7,3.1,2.2,1.2,0.4`); // camera over row D looking at row C
+await c.goto(`${BASE}/hall/main-reading?view=3d&cam=2.9,2.0,3.4,2.9,0.9,0.8`); // camera behind row D, looking at C4 (Riya) + C5 (Kabir)
 await c.waitForSelector(".hall3d canvas", { timeout: 30000 }); // mounted
-await settle(c, 7000); // camera settles
+await settle(c, 9000); // camera settles, models load
 await shot(c, "3d-avatars-closeup.png"); // faces close-up
+await c.goto(`${BASE}/hall/main-reading?view=3d&cam=4.35,1.3,2.2,4,0.98,0.8`); // straight across the table at Kabir
+await settle(c, 9000); // settle
+await shot(c, "vrm-closeup.png"); // one VRM student, focused pose
+await c.goto(`${BASE}/hall/main-reading?view=3d&cam=5.5,1.05,1.0,4,0.8,1.0`); // side-on: checks for chair/desk clipping
+await settle(c, 9000); // settle
+await shot(c, "vrm-side.png"); // seated side view
 
 // Overview zoomed in with the + button (faces readable at overview distance).
 await a.bringToFront(); // back to A

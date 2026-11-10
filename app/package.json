@@ -8,6 +8,7 @@
     "start": "next start -p 3123"
   },
   "dependencies": {
+    "@pixiv/three-vrm": "^3.5.5",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
     "@types/three": "^0.187.0",

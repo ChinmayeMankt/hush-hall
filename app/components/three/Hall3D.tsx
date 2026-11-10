@@ -9,9 +9,11 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber"; // React render
 import * as THREE from "three"; // math
 import Room from "./Room"; // walls, shelves, windows
 import Desks from "./Desks"; // desks, chairs, lamps
-import Avatar from "./Avatar"; // seated students
+import Avatar from "./VrmAvatar"; // seated anime students (VRM), low-poly fallback inside
 import { PLACES, PLACE_BY_SEAT } from "./layout"; // seat positions
 import type { Member } from "@/lib/presence/types"; // who sits where
+
+const MAX_VRM = 12; // ~35k triangles each (x2 with toon outlines); keeps the hall well under ~1M triangles
 
 // Props from HallView.
 interface Props {
@@ -86,9 +88,17 @@ function Projector({ labels }: { labels: Label[] }) {
 // Everything inside the canvas.
 function Scene({ seatMap, myId, mySeat, reduced, rain, onPick, hot, setHovered, labels, zoom }: Props & { hot: string | null; setHovered: (s: string | null) => void; labels: Label[]; zoom: number }) {
   const occupied = useMemo(() => new Set(seatMap.keys()), [seatMap]); // taken seats
+  // GPU budget: only the first MAX_VRM students (stable order) get full anime models; the rest use the light low-poly avatar.
+  const vrmIds = useMemo(() => new Set([...seatMap.values()].map((m) => m.id).sort().slice(0, MAX_VRM)), [seatMap]); // ids with VRM
   const firstPerson = !!mySeat; // seated camera
   const gl = useThree((s) => s.gl); // renderer (for cursor)
   useEffect(() => { gl.domElement.style.cursor = hot ? "pointer" : "default"; }, [hot, gl]); // pointer cursor on desks
+
+  // Dev-only test hook: who sits where (seat, name, model seed inputs) for close-up test cameras.
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return; // never in production builds
+    (window as unknown as { __hhSeats?: () => unknown }).__hhSeats = () => [...seatMap.entries()].map(([seat, m]) => ({ seat, name: m.name, phase: m.phase, ...PLACE_BY_SEAT.get(seat) })); // list
+  }, [seatMap]);
 
   // Dev-only test hook: screen position of a desk, so headless tests can hover/click real desks.
   const { camera, size } = useThree(); // camera + canvas size
@@ -125,7 +135,7 @@ function Scene({ seatMap, myId, mySeat, reduced, rain, onPick, hot, setHovered, 
       {[...seatMap.entries()].map(([seat, m]) => {
         const p = PLACE_BY_SEAT.get(seat); // place
         if (!p || (firstPerson && m.id === myId)) return null; // skip unknown seats / me in first-person
-        return <Avatar key={m.id} id={m.id} color={m.color} phase={m.phase} position={[p.x, 0, p.chairZ]} facing={p.facing} reduced={reduced} />;
+        return <Avatar key={m.id} id={m.id} name={m.name} simple={!vrmIds.has(m.id)} color={m.color} phase={m.phase} position={[p.x, 0, p.chairZ]} facing={p.facing} reduced={reduced} />;
       })}
 
       <Projector labels={labels} />
