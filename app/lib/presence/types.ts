@@ -17,6 +17,8 @@ export interface Member {
   phaseEndsAt: number | null; // epoch ms when the current phase ends, if a timer runs
   hideFromRequests: boolean; // true = nobody can send this person a join request
   isDemo?: boolean; // true for the locally simulated students in the prototype
+  look?: string; // wardrobe choices (outfit colour, neck accessory, shoes); see components/three/looks.ts
+  floor?: boolean; // true while this person sits on the floor to study (on foot, no desk); topic shows on their tag
   walking?: boolean; // true while this person walks around the hall on foot (no desk); live position comes from the walker store
   lastSeen: number; // epoch ms of last heartbeat, used to drop stale tabs
 }
@@ -27,7 +29,8 @@ export interface WalkState {
   x: number; // floor position x in metres (hall coordinates)
   z: number; // floor position z in metres
   ry: number; // facing angle around the vertical axis (0 = looking toward +z)
-  pose: "walking" | "idle"; // moving on foot, or standing still in the aisle (seated people have a desk instead)
+  pose: "walking" | "idle" | "floor"; // moving on foot, standing still, or sitting on the floor to study (seated-at-desk people have a desk instead)
+  topic?: string; // only with pose "floor": what they are studying (the database filters it before others see it)
 }
 
 // A quiet "may I join your study room?" note from one desk to another.

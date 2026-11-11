@@ -11,6 +11,7 @@ export interface Profile {
   focusMin: number; // Pomodoro focus length in minutes
   breakMin: number; // Pomodoro break length in minutes
   chime: boolean; // gentle chime at phase change (off by default)
+  look?: string; // wardrobe choices ("top=blue;shoes=off"; empty = the character as approved), see components/three/looks.ts
   roomsPaused?: boolean; // real mode: study rooms are paused for this account while a report is reviewed
 }
 

@@ -9,6 +9,7 @@ costs money on the free plans. Without env vars the app runs in offline demo mod
 1. Create a project on the Free plan (a region near your users, e.g. Mumbai).
 2. **SQL Editor** -> paste all of `supabase/migrations/0001_hush_hall.sql` -> **Run**. It should finish without errors.
    Then paste all of `supabase/migrations/0002_hall_walkers.sql` -> **Run** (people walking around are stored and read from the database, so they show even when the live channel is down). Safe to run again.
+   Then paste all of `supabase/migrations/0003_floor_and_looks.sql` -> **Run** (sitting on the floor with a topic, and saved wardrobe choices). Run it after 0002 (re-running 0002 later would undo it; run 0003 again if that happens). Safe to run again.
 3. **Authentication -> Sign In / Providers -> Email**: keep it enabled (magic links are used; no passwords).
 4. **Authentication -> URL Configuration**:
    - Site URL: your Vercel production URL, e.g. `https://hush-hall.vercel.app`
@@ -59,7 +60,7 @@ Vercel says Hobby is for personal, non-commercial use; move to Pro before Hush H
 
 ## Local checks without the cloud
 
-- Database rules: `supabase/tests/local_stub.sql` + the migration + `supabase/tests/rules_test.sql` on any scratch Postgres 15+ (prints `ALL_RULES_OK`); then `0002_hall_walkers.sql` + `supabase/tests/walkers_test.sql` (prints `ALL_WALKER_RULES_OK`).
+- Database rules: `supabase/tests/local_stub.sql` + the migration + `supabase/tests/rules_test.sql` on any scratch Postgres 15+ (prints `ALL_RULES_OK`); then `0002_hall_walkers.sql` + `supabase/tests/walkers_test.sql` (prints `ALL_WALKER_RULES_OK`); then `0003_floor_and_looks.sql` + `supabase/tests/floor_looks_test.sql` (prints `ALL_FLOOR_LOOK_RULES_OK`).
 - Voice grants were checked against a local `livekit-server --dev`: a second participant received the microphone track and a camera publish was refused.
 - Account deletion: `account_delete_test.sql` after both migrations (prints `ALL_DELETE_RULES_OK`): deleting the login leaves no rows about that person.
 

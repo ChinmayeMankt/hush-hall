@@ -7,12 +7,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"; // React hooks
 import Desk from "./Desk"; // one desk tile
-import { BreakCard, DeskCard, RecapDialog, SitDialog } from "./Dialogs"; // paper dialogs
+import { BreakCard, DeskCard, RecapDialog, SitDialog, FloorDialog, WardrobeDialog } from "./Dialogs"; // paper dialogs
 import { HALLS, ROWS, DESKS_PER_ROW, demoMembers, hallById } from "@/lib/halls"; // hall data
 import { getPresence, type JoinRequest, type Member, type Phase, type WalkState } from "@/lib/presence"; // presence layer
 import { ENTRANCE, standSpot } from "./three/walk"; // where a walk starts (tiny module: no three.js)
 import type { Profile } from "@/lib/profile"; // profile shape
-import { loadAccount, saveProfile, sitDown, heartbeat, standUp as saveStandUp, releaseOnUnload, usualSeat, setUsualSeat, fileReport, type ReportReason } from "@/lib/account"; // account: Supabase or demo storage
+import { parseLook, lookString, HAS_NECK } from "./three/looks"; // wardrobe (tiny module: no three.js)
+import { modelFor } from "./three/models"; // which character I am (for the wardrobe's neck option)
+import { loadAccount, saveProfile, saveLook, sitDown, heartbeat, standUp as saveStandUp, releaseOnUnload, usualSeat, setUsualSeat, fileReport, type ReportReason } from "@/lib/account"; // account: Supabase or demo storage
 import { hasSupabase, accessToken } from "@/lib/backend/client"; // real backend?
 import { loadMyRoom, type Room } from "@/lib/rooms"; // small study rooms
 import RoomPanel from "./RoomPanel"; // room members, leave/remove, voice
@@ -81,6 +83,11 @@ export default function HallView({ hallId }: { hallId: string }) {
   const rootRef = useRef<HTMLDivElement>(null); // what goes full screen (scene + overlays + dialogs together)
   const stick = useRef({ x: 0, y: 0 }).current; // on-screen move pad (touch), shared with the 3D hall
   const sentWalk = useRef<{ w: WalkState; at: number } | null>(null); // last position sent to the hall
+  const [floor, setFloor] = useState<string | null>(null); // sitting on the floor with this topic (only while on foot)
+  const [floorAsk, setFloorAsk] = useState(false); // the "sit on the floor" topic dialog is open
+  const [lastFloorTopic, setLastFloorTopic] = useState(""); // offered again next time
+  const [quick, setQuick] = useState(false); // touch: "Quicker" walk toggle (Shift does it on a keyboard)
+  const [wardrobe, setWardrobe] = useState(false); // wardrobe dialog open
 
   const phaseRef = useRef(phase); // latest phase for presence callbacks
   phaseRef.current = phase; // keep it current every render
@@ -142,14 +149,16 @@ export default function HallView({ hallId }: { hallId: string }) {
       avatar: profile.avatar, // avatar
       color: profile.color, // lamp colour
       seat, // desk or null
-      topic, // public topic
+      topic: seat ? topic : walk && floor ? floor : topic, // public topic (my floor topic while sitting on the floor)
       phase, // timer phase
       phaseEndsAt, // countdown end
       hideFromRequests: profile.hideFromRequests, // privacy toggle
       walking: !!walk && !seat, // on foot in the aisles (never while holding a desk)
+      floor: !!walk && !seat && floor !== null, // sitting on the floor to study
+      look: profile.look ?? "", // wardrobe
       lastSeen: Date.now(), // refreshed by the provider
     };
-  }, [profile, seat, topic, phase, phaseEndsAt, walk]); // walk included so others learn when I start/stop walking
+  }, [profile, seat, topic, phase, phaseEndsAt, walk, floor]); // walk/floor included so others learn when I start/stop walking or sit on the floor
 
   // Join the hall once my profile is ready; leave on unmount or tab close.
   const joined = useRef(false); // guard against double join
@@ -197,8 +206,20 @@ export default function HallView({ hallId }: { hallId: string }) {
 
   // Not walking any more (sat down, stopped, or left): clear my position for everyone.
   useEffect(() => {
-    if (!walk || seat) { presence.walk(null); sentWalk.current = null; } // nothing to show on foot
+    if (!walk || seat) { presence.walk(null); sentWalk.current = null; setFloor(null); setQuick(false); } // nothing to show on foot (and no floor sit without a walk)
   }, [walk, seat, presence]);
+
+  // G (while walking): sit on the floor here, or get up again. Ignored while typing or in a dialog.
+  useEffect(() => {
+    if (!walk || seat) return; // only on foot
+    const down = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null; // where the key went
+      if (e.code !== "KeyG" || e.ctrlKey || e.metaKey || e.altKey || (t && (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || t.isContentEditable)) || document.querySelector(".veil")) return; // not ours
+      if (floor !== null) setFloor(null); else setFloorAsk(true); // get up, or ask for the topic first
+    };
+    window.addEventListener("keydown", down); // listen
+    return () => window.removeEventListener("keydown", down); // cleanup
+  }, [walk, seat, floor]);
 
   // Walking help fades on its own after a short while (no lingering text over the scene).
   useEffect(() => {
@@ -332,6 +353,19 @@ export default function HallView({ hallId }: { hallId: string }) {
       if (seat) { say("You already have a desk. Stand up first to move."); return; } // one desk at a time
       setSitAt(s); // open sit dialog
     } else if (who.id !== profile?.id) setCardFor(who); // look at someone else's desk
+  };
+
+  // Stand up from the floor (button, G, or trying to walk); the walk carries on from there.
+  const getUp = useCallback(() => setFloor(null), []); // the avatar eases back up
+
+  // Save a wardrobe choice: show it right away, then store it (quietly say so if it couldn't be saved).
+  const dress = async (l: ReturnType<typeof parseLook>) => {
+    setWardrobe(false); // close
+    if (!profile) return; // not ready
+    const look = lookString(l); // short stored form
+    setProfile({ ...profile, look }); // everyone (incl. me) sees it on the next update
+    const ok = await saveLook(profile, look); // keep it for next time
+    if (!ok) say("Your wardrobe shows for now, but couldn’t be saved yet."); // e.g. database not updated
   };
 
   // Ritual step 2-3: write topic, sit, start the timer.
@@ -469,16 +503,21 @@ export default function HallView({ hallId }: { hallId: string }) {
       {/* 3D reading room when WebGL is available and chosen */}
       {view === "3d" && webgl ? (
         <div className="hall3d-wrap">
-          <Hall3D seatMap={seatMap} myId={profile.id} mySeat={seat} reduced={reduced} rain={rain} onPick={onDesk} hoverSeat={forceHover} me={me} walk={seat ? null : walk} walkers={walkersList} onMove={onMove} stick={stick} />
+          <Hall3D seatMap={seatMap} myId={profile.id} mySeat={seat} reduced={reduced} rain={rain} onPick={onDesk} hoverSeat={forceHover} me={me} walk={seat ? null : walk} walkers={walkersList} onMove={onMove} stick={stick} floor={floor} onGetUp={getUp} quick={quick} />
           {/* Calm frame controls, top-left: walk on foot, and full screen */}
           <div className="frame-ctl">
             {!seat && (walking
               ? <button className="ghost small" onClick={() => setWalk(null)}>Stop walking</button>
               : <button className="ghost small" onClick={() => setWalk({ ...ENTRANCE, n: Date.now() })}>Walk around</button>)}
+            {walking && (floor !== null
+              ? <button className="ghost small" onClick={getUp} title="Get up (G)">Get up</button>
+              : <button className="ghost small" onClick={() => setFloorAsk(true)} title="Sit on the floor here to study (G)">Sit on the floor</button>)}
+            {walking && floor === null && <button className={`ghost small touch-only ${quick ? "on" : ""}`} aria-pressed={quick} onClick={() => setQuick((v) => !v)}>{quick ? "Usual pace" : "Quicker"}</button>}
+            <button className="ghost small" onClick={() => setWardrobe(true)}>Wardrobe</button>
             {canFs && <button className="ghost small" onClick={toggleFs} title="Full screen (F). Esc to leave.">{fs ? "Exit full screen" : "Full screen"}</button>}
           </div>
           {/* One short line of help: while walking (fades), or the usual standing hint */}
-          {walking ? <div className={`hint3d ${helpOn ? "" : "faded"}`}><span className="kb-only">WASD or arrows to walk · drag to look · Q/E to turn · </span><span className="touch-only">Use the pad to walk · drag to look · </span>tap a free desk to sit</div> : !seat && <div className="hint3d">{hint3d}</div>}
+          {walking ? <div className={`hint3d ${helpOn ? "" : "faded"}`}>{floor !== null ? <>Sitting on the floor · <span className="kb-only">G or any walking key to get up · </span><span className="touch-only">use the pad to get up · </span>tap a free desk to move there</> : <><span className="kb-only">WASD or arrows to walk · Shift for a quicker pace · drag to look · Q/E to turn · G to sit on the floor · </span><span className="touch-only">Use the pad to walk · drag to look · </span>tap a free desk to sit</>}</div> : !seat && <div className="hint3d">{hint3d}</div>}
           {/* Touch: a small move pad (shown on touch screens only) */}
           {walking && <MovePad stick={stick} />}
           {/* Minimal timer HUD sits inside the 3D frame, top-right, like a paper note */}
@@ -552,6 +591,8 @@ export default function HallView({ hallId }: { hallId: string }) {
       )}
 
       {/* Dialogs */}
+      {floorAsk && <FloorDialog defaultTopic={lastFloorTopic || topic} onCancel={() => setFloorAsk(false)} onSit={(t) => { setFloorAsk(false); setLastFloorTopic(t); setFloor(t); }} />}
+      {wardrobe && <WardrobeDialog look={parseLook(profile.look)} hasNeck={HAS_NECK.has(modelFor(profile.id, profile.color, profile.name).file)} onCancel={() => setWardrobe(false)} onSave={dress} />}
       {sitAt && <SitDialog seat={sitAt} defaultFocus={plan.f} defaultBreak={plan.b} onCancel={() => setSitAt(null)} onSit={sit} />}
       {cardFor && (
         <DeskCard

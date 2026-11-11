@@ -196,6 +196,7 @@ main:has(.hall3d-wrap) { max-width: none; padding: 10px 14px 14px; } /* the 3D h
 .frame-ctl button, .hall3d-wrap .move-pad { backdrop-filter: blur(2px); } /* paper over the scene */
 .frame-ctl button { background: rgba(247, 237, 214, 0.9); color: var(--wood-dark); border-color: #c9b48a; } /* calm paper pills */
 .frame-ctl button:hover { background: #fffdf3; } /* gentle hover */
+.frame-ctl button.on { background: #efe3c4; border-color: #a8916a; } /* a toggle that is on: slightly deeper paper, no bright colour */
 .hint3d { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 20; background: rgba(247, 237, 214, 0.86); color: #3b2f25; border: 1px solid #c9b48a; border-radius: 14px; padding: 4px 12px; font-size: 12px; text-align: center; max-width: min(640px, 80%); pointer-events: none; transition: opacity 1.2s ease; } /* one quiet help line */
 .hint3d.faded { opacity: 0; } /* walking help fades away */
 .hall3d.walking { touch-action: none; cursor: grab; } /* drag to look (no page scroll while walking) */

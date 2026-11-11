@@ -27,5 +27,8 @@ export function cleanWalk(raw: unknown): WalkState | null {
   const x = num(w.x), z = num(w.z), ry = num(w.ry); // read the numbers
   if (x === null || z === null || ry === null) return null; // malformed: ignore
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v)); // keep inside a range
-  return { x: clamp(x, -11, 11), z: clamp(z, -8, 8), ry: clamp(ry, -100, 100), pose: w.pose === "walking" ? "walking" : "idle" }; // safe copy
+  const pose = w.pose === "walking" || w.pose === "floor" ? w.pose : "idle"; // known poses only (anything else = standing)
+  const out: WalkState = { x: clamp(x, -11, 11), z: clamp(z, -8, 8), ry: clamp(ry, -100, 100), pose }; // safe copy
+  if (pose === "floor" && typeof w.topic === "string") out.topic = w.topic.slice(0, 80); // floor sitters carry their topic (capped)
+  return out; // checked
 }

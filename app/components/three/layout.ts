@@ -17,7 +17,7 @@ const ROW_Z = [-4.45, -3.55, 1.55, 2.45]; // A/B back-to-back, C/D back-to-back
 const ROW_FACING: (1 | -1)[] = [1, -1, 1, -1]; // A faces B, B faces A, C faces D, D faces C
 
 // Desk spacing across a row, with a wider centre aisle after desk 3.
-const COL_STEP = 2.2; // gap between desk centres
+const COL_STEP = 2.5; // gap between desk centres (2.5 leaves a 0.8 m walkway between neighbouring desks, wide enough to walk through comfortably)
 const AISLE = 1.4; // extra space for the centre aisle
 
 // x position of desk column i (0..5).

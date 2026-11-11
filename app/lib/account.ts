@@ -45,8 +45,9 @@ export async function loadAccount(force = false): Promise<AccountState> {
   if (!user) { cached = { state: "signed_out" }; return cached; } // not signed in
   const { data: row } = await sb.from("profiles").select("id,nickname,avatar,color,hide_from_requests,focus_min,break_min,chime,rooms_suspended").eq("id", user.id).maybeSingle(); // my profile (RLS: own row only)
   if (!row) { cached = { state: "needs_onboarding", email: user.email ?? "" }; return cached; } // finish sign-up first
+  const { data: lk } = await sb.from("profiles").select("look").eq("id", user.id).maybeSingle(); // wardrobe, read on its own so a database without the column (migration 0003 not run yet) still loads the profile
   const { error: modErr } = await sb.rpc("mod_queue", { p_status: "none" }); // cheap moderator check (empty result for moderators, error for others)
-  cached = { state: "ready", profile: toProfile(row as ProfileRow), email: user.email ?? "", isModerator: !modErr }; // ready
+  cached = { state: "ready", profile: { ...toProfile(row as ProfileRow), look: (lk as { look?: string } | null)?.look ?? "" }, email: user.email ?? "", isModerator: !modErr }; // ready (look: empty if not available)
   return cached; // done
 }
 
@@ -56,6 +57,16 @@ export async function saveProfile(p: Profile): Promise<boolean> {
   if (!hasSupabase) { local.saveProfile(p); return true; } // demo
   const { error } = await supabase().from("profiles").update({ nickname: p.name.trim().slice(0, 24), avatar: p.avatar, color: p.color, hide_from_requests: p.hideFromRequests, focus_min: p.focusMin, break_min: p.breakMin, chime: p.chime }).eq("id", p.id); // settings columns only (DB grants enforce this)
   return !error; // false = not saved (e.g. nickname blocked)
+}
+
+// Save my wardrobe choice on its own (so the other settings still save on a
+// database where the look column doesn't exist yet). False = not saved.
+export async function saveLook(p: Profile, look: string): Promise<boolean> {
+  const next = { ...p, look }; // updated profile
+  if (cached?.state === "ready") cached = { ...cached, profile: next }; // keep the cache in step
+  if (!hasSupabase) { local.saveProfile(next); return true; } // demo: this browser only
+  const { error } = await supabase().from("profiles").update({ look }).eq("id", p.id); // my row only (RLS + column grant)
+  return !error; // false = e.g. migration 0003 not run yet
 }
 
 // Sign out (real mode).

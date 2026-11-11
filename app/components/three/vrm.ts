@@ -17,6 +17,7 @@ import { VRMLoaderPlugin, VRMUtils, type VRM, type VRMHumanBoneName, VRMExpressi
 // The character roster lives in models.ts (no three.js import), so the page can prefetch files early.
 export { MODELS } from "./models"; // re-exported for existing imports
 import { fetchModel } from "./models"; // shared, de-duplicated downloads
+import { TOP_TINTS, type Look } from "./looks"; // wardrobe choices
 
 // Finger joints we pose: 5 fingers x 3 joints x 2 hands.
 export const FINGERS = ["Thumb", "Index", "Middle", "Ring", "Little"] as const; // thumb first
@@ -123,7 +124,8 @@ export function loadTemplate(file: string): Promise<Template> {
 
 // Make a cheap clone: shared geometry/materials, own bones and morph weights.
 // `tint` optionally recolours skin/hair (allowed: the models are CC0).
-export function instantiate(t: Template, tint?: { skin?: THREE.Color; hair?: THREE.Color }): Instance {
+// `look` applies the wardrobe: outfit tint, neck accessory and shoes (see looks.ts).
+export function instantiate(t: Template, tint?: { skin?: THREE.Color; hair?: THREE.Color }, look?: Look): Instance {
   const root = skeletonClone(t.scene); // new bones, shared buffers
   // Map original objects -> clones (same traversal order) to find morph meshes.
   const orig: THREE.Object3D[] = []; t.scene.traverse((o) => orig.push(o)); // source order
@@ -134,6 +136,7 @@ export function instantiate(t: Template, tint?: { skin?: THREE.Color; hair?: THR
   const morphs = Object.fromEntries(Object.entries(t.morphs).map(([k, list]) => [k, list.map((x) => ({ mesh: byUuid.get(x.mesh) as THREE.Mesh, index: x.index })).filter((x) => x.mesh)])) as Record<string, { mesh: THREE.Mesh; index: number }[]>; // per-clone targets
   root.traverse((o) => { o.frustumCulled = false; (o as THREE.Mesh).raycast = () => {}; }); // clones don't copy these: no culling glitches, no click stealing
   if (tint) root.traverse((o) => tintMesh(o as THREE.Mesh, tint)); // recolour
+  if (look) root.traverse((o) => dress(o as THREE.Mesh, look)); // wardrobe choices
   return {
     root, bones, hipsY: t.hipsY, sign: t.isVRM0 ? -1 : 1,
     setExpression: (name, w) => morphs[name]?.forEach(({ mesh, index }) => { if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[index] = w; }), // set weight
@@ -164,12 +167,23 @@ function faceFill(m: THREE.Mesh) {
   }
 }
 
+// Wardrobe on one clone's mesh: hide shoes or the neck accessory (each is its
+// own mesh after merging, so nothing else changes), and tint the top.
+function dress(m: THREE.Mesh, look: Look) {
+  if (!m.isMesh) return; // only meshes
+  const name = (Array.isArray(m.material) ? m.material[0] : m.material).name; // material name tells the part
+  if (/_Shoes_/.test(name)) m.visible = look.shoes !== "off"; // barefoot: the modelled feet underneath show
+  if (/_AccessoryNeck_/.test(name)) m.visible = look.neck !== "off"; // ribbon / tie
+  const tint = /_Tops_/.test(name) ? TOP_TINTS[look.top] : null; // outfit colour
+  if (tint) tintMesh(m, { cloth: new THREE.Color(tint) }); // multiplied over the cloth texture
+}
+
 // Shared tinted material variants (so ten avatars with the same tint still share one material).
 const tintCache = new Map<string, THREE.Material>(); // key -> material
-function tintMesh(m: THREE.Mesh, tint: { skin?: THREE.Color; hair?: THREE.Color }) {
+function tintMesh(m: THREE.Mesh, tint: { skin?: THREE.Color; hair?: THREE.Color; cloth?: THREE.Color }) {
   if (!m.isMesh) return; // only meshes
   const swap = (mat: THREE.Material) => {
-    const kind = /SKIN/.test(mat.name) ? "skin" : /HAIR/.test(mat.name) ? "hair" : null; // which part
+    const kind = /SKIN/.test(mat.name) ? "skin" : /HAIR/.test(mat.name) ? "hair" : /CLOTH/.test(mat.name) ? "cloth" : null; // which part
     const c = kind ? tint[kind] : undefined; // colour for it
     if (!c) return mat; // untouched
     const key = `${mat.uuid}:${c.getHexString()}`; // variant id

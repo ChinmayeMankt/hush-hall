@@ -33,6 +33,18 @@ interface Props {
   walkers: Member[]; // other people on foot in this hall (positions come from the walker store)
   onMove: (w: WalkState) => void; // my position while walking, every frame (the hall throttles the network)
   stick?: { x: number; y: number }; // on-screen move pad (touch), x right / y forward
+  floor?: string | null; // I'm sitting on the floor with this topic (null = on my feet)
+  onGetUp?: () => void; // I tried to walk while sitting on the floor
+  quick?: boolean; // on-screen "Quicker" toggle (brisk walk)
+}
+
+// Each frame, list the people sitting on the floor (not me), so my walk goes round them.
+function FloorObstacles({ bodies, myId, input }: { bodies: Map<string, Body>; myId: string; input: WalkInput }) {
+  useFrame(() => {
+    input.obstacles.length = 0; // fresh list (same array, no garbage)
+    for (const [id, b] of bodies) if (id !== myId && b.floor && !b.hidden) input.obstacles.push({ x: b.x, z: b.z, r: 0.42 }); // someone cross-legged here
+  }, -2); // before my walker moves
+  return null; // no visuals
 }
 
 // Camera presets.
@@ -157,14 +169,15 @@ function Scene({ seatMap, myId, mySeat, reduced, rain, onPick, hot, setHovered, 
       {[...seatMap.entries()].map(([seat, m]) => {
         const p = PLACE_BY_SEAT.get(seat); // place
         if (!p || (firstPerson && m.id === myId)) return null; // skip unknown seats / me in first-person
-        return <Avatar key={m.id} id={m.id} name={m.name} simple={!vrmIds.has(m.id)} color={m.color} phase={m.phase} position={[p.x, 0, p.chairZ]} facing={p.facing} reduced={reduced} />;
+        return <Avatar key={m.id} id={m.id} name={m.name} simple={!vrmIds.has(m.id)} color={m.color} phase={m.phase} position={[p.x, 0, p.chairZ]} facing={p.facing} reduced={reduced} look={m.look} />;
       })}
 
       {/* Me on foot: keys move my body, the camera follows behind */}
       {walking && bodies.get(me.id) && (
         <>
+          <FloorObstacles bodies={bodies} myId={me.id} input={input} />
           <LocalWalker key={walk!.n} body={bodies.get(me.id)!} input={input} onMove={onMove} />
-          <WalkAvatar key={`me-${walk!.n}`} id={me.id} name={me.name} color={me.color} body={bodies.get(me.id)!} reduced={reduced} />
+          <WalkAvatar key={`me-${walk!.n}`} id={me.id} name={me.name} color={me.color} body={bodies.get(me.id)!} reduced={reduced} look={me.look} />
         </>
       )}
 
@@ -172,7 +185,7 @@ function Scene({ seatMap, myId, mySeat, reduced, rain, onPick, hot, setHovered, 
       {walkers.filter((m) => vrmIds.has(m.id) && bodies.get(m.id)).map((m) => (
         <group key={m.id}>
           <RemoteWalker id={m.id} body={bodies.get(m.id)!} />
-          <WalkAvatar id={m.id} name={m.name} color={m.color} body={bodies.get(m.id)!} reduced={reduced} anchor={anchors.get(m.id)} />
+          <WalkAvatar id={m.id} name={m.name} color={m.color} body={bodies.get(m.id)!} reduced={reduced} anchor={anchors.get(m.id)} look={m.look} />
         </group>
       ))}
 
@@ -197,6 +210,9 @@ export default function Hall3D(props: Props) {
   const input = useMemo(() => newInput(walk?.ry ?? 0, walk?.pitch), [walk?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   const myBody = useMemo<Body>(() => ({ x: walk?.x ?? 0, z: walk?.z ?? 0, ry: walk?.ry ?? 0, speed: 0, moved: 0 }), [walk?.n]); // eslint-disable-line react-hooks/exhaustive-deps
   if (props.stick) input.stick = props.stick; // on-screen pad shares the same input
+  input.floor = walking ? props.floor ?? null : null; // sitting on the floor (topic), set by the hall
+  input.getUp = props.onGetUp; // walking keys while on the floor ask the hall to stand me up
+  input.quick = !!props.quick; // touch "Quicker" toggle
   // Bodies and tag anchors for remote walkers, kept per id so they survive re-renders.
   const store = useRef({ bodies: new Map<string, Body>(), anchors: new Map<string, THREE.Vector3>() }); // per-person objects
   const bodies = useMemo(() => { // id -> body, updated when people start/stop walking
@@ -276,7 +292,7 @@ export default function Hall3D(props: Props) {
         ))}
         {walkTags.map((m) => (
           <div key={m.id} id={`lbl-walk-${m.id}`} className="lbl">
-            <div className="tag3d walk-tag"><div className="tag3d-who">{m.avatar} {m.name}</div></div>
+            <div className="tag3d walk-tag"><div className="tag3d-who">{m.avatar} {m.name}</div>{m.floor && m.topic && <div className="tag3d-topic">{m.topic}</div>}</div>
           </div>
         ))}
         {hot && !(firstPerson && hot === mySeat) && (

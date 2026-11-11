@@ -5,6 +5,7 @@
 import { useState } from "react"; // local form state
 import type { Member } from "@/lib/presence/types"; // member shape
 import { REPORT_REASONS, type ReportReason } from "@/lib/account"; // report reasons (same list as the database)
+import { TOP_LABELS, type Look } from "./three/looks"; // wardrobe choices (no three.js import)
 
 // ---- Sit-down dialog: step 2 of the ritual (sit -> topic -> timer -> recap) ----
 export function SitDialog(props: {
@@ -161,6 +162,66 @@ export function ReportDialog(props: { member: Member; onCancel: () => void; onSe
         <div className="actions">
           <button type="button" className="ghost" onClick={props.onCancel}>Cancel</button>
           <button type="submit" className="sage" disabled={!reason}>Send report</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ---- Sit on the floor: one line for the topic, then sit where you stand ----
+export function FloorDialog(props: {
+  defaultTopic: string; // last topic, offered again
+  onCancel: () => void; // stay on my feet
+  onSit: (topic: string) => void; // sit down cross-legged here
+}) {
+  const [topic, setTopic] = useState(props.defaultTopic); // what they will study
+  return (
+    <div className="veil" role="dialog" aria-modal="true">
+      <form className="dialog" onSubmit={(e) => { e.preventDefault(); if (topic.trim()) props.onSit(topic.trim()); }}>
+        <h2>Sit on the floor</h2>
+        <p className="muted small">You’ll kneel on a reading cushion right where you stand. Your topic shows above you for everyone in the hall. Walk again any time to get up, or tap a free desk.</p>
+        <label htmlFor="floor-topic">Today’s topic</label>
+        <input id="floor-topic" type="text" autoFocus maxLength={60} placeholder="e.g. Organic chemistry: SN1 vs SN2" value={topic} onChange={(e) => setTopic(e.target.value)} />
+        <div className="actions">
+          <button type="button" className="ghost" onClick={props.onCancel}>Not now</button>
+          <button type="submit" className="sage" disabled={!topic.trim()}>Sit here</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ---- Wardrobe: a small first set of choices, all from the character's own clothes ----
+export function WardrobeDialog(props: {
+  look: Look; // current choices
+  hasNeck: boolean; // my character wears a neck ribbon / tie
+  onCancel: () => void; // close without changes
+  onSave: (look: Look) => void; // keep these
+}) {
+  const [look, setLook] = useState<Look>(props.look); // working copy
+  const pick = (patch: Partial<Look>) => setLook((l) => ({ ...l, ...patch })); // change one choice
+  return (
+    <div className="veil" role="dialog" aria-modal="true">
+      <form className="dialog" onSubmit={(e) => { e.preventDefault(); props.onSave(look); }}>
+        <h2>Wardrobe</h2>
+        <p className="muted small">Small changes to your character’s own clothes. Everyone in the hall sees them.</p>
+        <label htmlFor="look-top">Outfit colour</label>
+        <select id="look-top" value={look.top} onChange={(e) => pick({ top: e.target.value as Look["top"] })}>
+          {(Object.keys(TOP_LABELS) as Look["top"][]).map((k) => <option key={k} value={k}>{TOP_LABELS[k]}</option>)}
+        </select>
+        {props.hasNeck && (
+          <label className="toggle" style={{ marginTop: 10 }}>
+            <input type="checkbox" checked={look.neck === "on"} onChange={(e) => pick({ neck: e.target.checked ? "on" : "off" })} />
+            Neck ribbon / tie
+          </label>
+        )}
+        <label className="toggle" style={{ marginTop: 10 }}>
+          <input type="checkbox" checked={look.shoes === "off"} onChange={(e) => pick({ shoes: e.target.checked ? "off" : "on" })} />
+          Shoes off (barefoot, like a reading room at home)
+        </label>
+        <div className="actions">
+          <button type="button" className="ghost" onClick={props.onCancel}>Cancel</button>
+          <button type="submit" className="sage">Save</button>
         </div>
       </form>
     </div>

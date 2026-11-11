@@ -20,9 +20,9 @@ import { setWalker, cleanWalk } from "./walkers"; // live positions of people on
 // What each tab announces on the presence channel (small and non-authoritative).
 type Beacon = { phase: Phase; phaseEndsAt: number | null; seated?: boolean; walk?: WalkState | null }; // timer state, whether I hold a desk (so sitting/standing re-reads desks), plus where I stand while walking (position, facing, pose)
 // Public profile fields from public_profiles().
-type Pub = { id: string; nickname: string; avatar: string; color: string; takes_requests: boolean; show_topic: boolean }; // safe fields
+type Pub = { id: string; nickname: string; avatar: string; color: string; takes_requests: boolean; show_topic: boolean; look?: string }; // safe fields (look: wardrobe, once migration 0003 is in)
 // A walker row from hall_walkers() (age_ms / stamp by the database clock).
-type WalkRow = { user_id: string; x: number; z: number; ry: number; pose: string; age_ms: number; stamp: number | string }; // someone on foot
+type WalkRow = { user_id: string; x: number; z: number; ry: number; pose: string; age_ms: number; stamp: number | string; topic?: string }; // someone on foot (topic: floor sitters, once migration 0003 is in)
 // A desk row from hall_desks().
 type DeskRow = { user_id: string; seat: string; topic: string; started_at: string }; // active desk
 
@@ -50,7 +50,8 @@ export class SupabasePresence implements PresenceProvider {
   private live = false; // true while the hall presence channel is connected (SUBSCRIBED)
   private lastRead = 0; // Date.now() of the last desk read (paces the fallback polling)
   private presWalk = new Map<string, WalkState>(); // positions from the live channel (fast, when it works)
-  private dbWalk = new Map<string, { w: WalkState; stamp: number; age: number }>(); // positions from the database (always)
+  private dbWalk = new Map<string, { w: WalkState; stamp: number; age: number; topic: string }>(); // positions from the database (always), plus a floor sitter's filtered topic
+  private legacyWalk = false; // true = the database has only the 0002 walker functions (no floor pose / topic yet)
   private shown = new Map<string, string>(); // id -> which sample the 3D hall has now (so repeats aren't re-sent)
   private walkSig = ""; // who was on foot at the last database read (a change re-reads profiles)
   private lastWalkPoll = 0; // Date.now() of the last walker read
@@ -172,7 +173,8 @@ export class SupabasePresence implements PresenceProvider {
   // Announce my timer phase on the presence channel.
   private track() {
     if (!this.chan || !this.me) return; // not ready
-    const b: Beacon = { phase: this.me.phase, phaseEndsAt: this.me.phaseEndsAt, seated: !!this.me.seat, walk: this.me.seat ? null : this.myWalk }; // small payload (never a walking position while seated)
+    const w = this.me.seat || !this.myWalk ? null : { x: this.myWalk.x, z: this.myWalk.z, ry: this.myWalk.ry, pose: this.myWalk.pose }; // position + pose only: topics always come from the database (filtered), never from presence
+    const b: Beacon = { phase: this.me.phase, phaseEndsAt: this.me.phaseEndsAt, seated: !!this.me.seat, walk: w }; // small payload (never a walking position while seated)
     this.chan.track(b).catch(() => {}); // best effort (reconnects re-track)
   }
 
@@ -188,7 +190,7 @@ export class SupabasePresence implements PresenceProvider {
       const w = this.blocked.has(id) ? null : cleanWalk(b?.walk); // checked position, none for blocked people
       if (w) this.presWalk.set(id, w); else this.presWalk.delete(id); // live-channel position (or none)
       this.publish(id); // update (or clear) their figure on foot
-      parts.push(`${id}:${b?.phase}:${b?.phaseEndsAt}:${b?.seated ? 1 : 0}:${w ? 1 : 0}`); // what the desks and labels depend on (sit/stand, timer, walk on/off)
+      parts.push(`${id}:${b?.phase}:${b?.phaseEndsAt}:${b?.seated ? 1 : 0}:${w ? (w.pose === "floor" ? 2 : 1) : 0}`); // what the desks and labels depend on (sit/stand, timer, walk on/off)
     }
     const sig = parts.join("|"); // compact signature
     if (sig !== this.lastSig) { this.lastSig = sig; this.schedule(); } // arrivals, departures, timers, walk on/off: re-read desks
@@ -225,9 +227,11 @@ export class SupabasePresence implements PresenceProvider {
       const beacons = state[id] ?? []; // this account's tabs
       const b = beacons[beacons.length - 1]; // latest tab wins
       const desk = deskBy.get(id); // their desk, if seated
+      const floor = !desk && (this.presWalk.get(id) ?? this.dbWalk.get(id)?.w)?.pose === "floor"; // sitting on the floor (live channel first, then database)
       return [{
         id, name: pub.nickname, avatar: pub.avatar, color: pub.color, // who (from the database)
-        seat: desk?.seat ?? null, topic: pub.show_topic ? desk?.topic ?? "" : "", // where + what (from the database)
+        seat: desk?.seat ?? null, topic: pub.show_topic ? desk?.topic ?? (floor ? this.dbWalk.get(id)?.topic ?? "" : "") : "", // where + what (from the database: desk topic, or floor topic)
+        floor, look: pub.look ?? "", // sitting on the floor? + wardrobe (from the database)
         phase: (desk ? b?.phase ?? "idle" : "idle") as Phase, phaseEndsAt: desk ? b?.phaseEndsAt ?? null : null, // timer (from presence)
         hideFromRequests: !pub.takes_requests, lastSeen: now, // privacy + freshness
         walking: !desk && (this.presWalk.has(id) || this.dbWalk.has(id)), // on foot only when they hold no desk (live channel or database)
@@ -267,9 +271,12 @@ export class SupabasePresence implements PresenceProvider {
         const { s } = this.wNext; this.wNext = null; // take the newest
         if (s && Date.now() < this.walkOffUntil) continue; // database not ready for walkers: skip quietly
         const sb = supabase(); // client
-        const { error } = s
-          ? await sb.rpc("walk_update", { p_hall: this.hall, p_x: s.x, p_z: s.z, p_ry: s.ry, p_pose: s.pose }) // save where I stand
-          : await sb.rpc("walk_clear"); // or that I stopped
+        // Save where I stand (with the topic while on the floor). Before migration 0003
+        // the database only knows walking/idle without a topic: save that instead.
+        const full = () => sb.rpc("walk_update", { p_hall: this.hall, p_x: s!.x, p_z: s!.z, p_ry: s!.ry, p_pose: s!.pose, p_topic: s!.pose === "floor" ? s!.topic ?? "" : null }); // current functions
+        const legacy = () => sb.rpc("walk_update", { p_hall: this.hall, p_x: s!.x, p_z: s!.z, p_ry: s!.ry, p_pose: s!.pose === "walking" ? "walking" : "idle" }); // 0002 functions
+        let { error } = s ? await (this.legacyWalk ? legacy() : full()) : await sb.rpc("walk_clear"); // or that I stopped
+        if (s && error && missingFn(error) && !this.legacyWalk) { this.legacyWalk = true; ({ error } = await legacy()); } // older database: fall back (floor shows as standing there)
         if (error) { if (missingFn(error)) this.walkOffUntil = Date.now() + 60000; continue; } // functions not installed yet: try again in a minute
         this.stored = !!s; // remember whether a row exists now
       }
@@ -291,11 +298,11 @@ export class SupabasePresence implements PresenceProvider {
         const w = cleanWalk({ x: r.x, z: r.z, ry: r.ry, pose: r.pose }); // same checks as live positions
         if (!w) continue; // malformed: skip
         seen.add(r.user_id); // still here
-        this.dbWalk.set(r.user_id, { w, stamp: Number(r.stamp), age: Math.max(0, r.age_ms) }); // newest known position
+        this.dbWalk.set(r.user_id, { w, stamp: Number(r.stamp), age: Math.max(0, r.age_ms), topic: typeof r.topic === "string" ? r.topic : "" }); // newest known position (+ filtered floor topic)
         this.publish(r.user_id); // hand it to the 3D hall (only if it's a new step)
       }
       for (const id of [...this.dbWalk.keys()]) if (!seen.has(id)) { this.dbWalk.delete(id); this.publish(id); } // stopped, sat, or left
-      const sig = [...seen].sort().join(","); // who is on foot
+      const sig = [...seen].sort().map((id) => { const d = this.dbWalk.get(id)!; return d.w.pose === "floor" ? `${id}:floor:${d.topic}` : id; }).join(","); // who is on foot, and who sits on the floor with which topic
       if (sig !== this.walkSig) { this.walkSig = sig; this.schedule(); } // someone started or stopped walking: rebuild the list (profiles, walking flag)
     } catch { /* network hiccup: the next tick tries again */ } finally { this.walkBusy = false; } // ready for the next read
   }

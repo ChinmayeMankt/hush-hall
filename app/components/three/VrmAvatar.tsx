@@ -15,6 +15,7 @@ import type { Phase } from "@/lib/presence/types"; // pose source
 import LowPolyAvatar from "./Avatar"; // fallback
 import { FINGERS, boneOf, loadTemplate, instantiate, type Instance } from "./vrm"; // VRM loading + clones + finger names
 import { hash, modelFor } from "./models"; // shared character picker (also used to prefetch)
+import { parseLook } from "./looks"; // wardrobe choices
 
 // Indian-inclusive skin tints (multiplied over the VRoid skin texture; null = original).
 export const SKIN_TINTS = [null, "#f1d2bd", "#dcae8e", "#c08a68", "#a8775a"]; // fair -> brown
@@ -34,6 +35,7 @@ interface Props {
   position: [number, number, number]; // chair centre on the floor
   facing: 1 | -1; // +1 looks toward +z
   reduced: boolean; // prefers-reduced-motion
+  look?: string; // wardrobe choices (looks.ts string; empty = the character as approved)
 }
 
 // Scratch objects (reused every frame, no garbage).
@@ -115,7 +117,7 @@ export function ik2(root: THREE.Object3D, mid: THREE.Object3D, end: THREE.Object
 }
 
 export default function VrmAvatar(props: Props) {
-  const { id, name, simple, color, phase, position, facing, reduced } = props; // inputs
+  const { id, name, simple, color, phase, position, facing, reduced, look } = props; // inputs
   const k = useMemo(() => hash(id + color), [id, color]); // seed
   const model = modelFor(id, color, name); // which character (same rule the page prefetches with)
   const [inst, setInst] = useState<Instance | null>(null); // loaded clone
@@ -130,11 +132,11 @@ export default function VrmAvatar(props: Props) {
       if (!live) return;
       const skin = SKIN_TINTS[(k >>> 4) % SKIN_TINTS.length]; // skin tint
       const hair = HAIR_TINTS[(k >>> 8) % HAIR_TINTS.length]; // hair tint
-      setInst(instantiate(t, { skin: skin ? new THREE.Color(skin) : undefined, hair: hair ? new THREE.Color(hair) : undefined })); // own bones
+      setInst(instantiate(t, { skin: skin ? new THREE.Color(skin) : undefined, hair: hair ? new THREE.Color(hair) : undefined }, parseLook(look))); // own bones, dressed as they chose
       invalidate(); // show it
     }).catch((e) => { console.warn("VRM load failed, using low-poly avatar", e); if (live) setFailed(true); }); // fallback
     return () => { live = false; };
-  }, [model.file, k, invalidate, simple]);
+  }, [model.file, k, invalidate, simple, look]); // a wardrobe change re-dresses the clone
 
   const t0 = useMemo(() => (k % 1000) / 100, [k]); // per-student time offset
   const blinkAt = useRef(2 + (k % 3)); // next blink time
