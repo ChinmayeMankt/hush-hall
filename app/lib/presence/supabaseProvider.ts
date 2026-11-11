@@ -21,6 +21,7 @@ type Pub = { id: string; nickname: string; avatar: string; color: string; takes_
 type DeskRow = { user_id: string; seat: string; topic: string; started_at: string }; // active desk
 
 const REFRESH_MS = 20000; // setting: re-read desks/profiles every 20 s even without presence events (topic edits, holds)
+const OFFLINE_REFRESH_MS = 6000; // setting: while the live channel is not connected, re-read desks every 6 s so taken desks and seated people still show
 
 export class SupabasePresence implements PresenceProvider {
   private hall = ""; // current hall id
@@ -37,6 +38,8 @@ export class SupabasePresence implements PresenceProvider {
   private pending: ReturnType<typeof setTimeout> | null = null; // debounced refresh
   private seenRequests = new Set<string>(); // request ids already delivered (initial load + realtime can overlap)
   private myWalk: WalkState | null = null; // my position on foot, announced with my beacon
+  private live = false; // true while the hall presence channel is connected (SUBSCRIBED)
+  private lastRead = 0; // Date.now() of the last desk read (paces the fallback polling)
   private lastSig = ""; // who is here + their phase + walking flag at the last database read (walk steps alone skip the read)
 
   // Enter a hall: join its presence channel and my private inbox.
@@ -48,14 +51,28 @@ export class SupabasePresence implements PresenceProvider {
     sb.from("blocks").select("blocked_id").then(({ data }) => { (data ?? []).forEach((r: { blocked_id: string }) => this.blocked.add(r.blocked_id)); this.schedule(); }); // my block list
     this.chan = sb.channel(`hall:${hallId}`, { config: { private: true, presence: { key: me.id } } }); // one key per account (several tabs merge)
     this.chan.on("presence", { event: "sync" }, () => this.synced()); // someone came, left, changed, or took a step
-    this.chan.subscribe((status) => { if (status === "SUBSCRIBED") this.track(); }); // announce once connected
+    // The hall channel is private, so the join must carry my signed-in token, not the
+    // anonymous key. Load the session and hand its token to Realtime before joining;
+    // otherwise the join can be refused and nobody else ever appears.
+    const chan = this.chan; // this join's channel (a later join replaces it)
+    void sb.auth.getSession() // the stored session (refreshed if needed)
+      .then(({ data }) => (data.session ? sb.realtime.setAuth(data.session.access_token) : undefined)) // give Realtime my user token for the private join
+      .catch(() => undefined) // no session: the join will report why below
+      .then(() => {
+        if (this.chan !== chan) return; // left or moved halls meanwhile
+        chan.subscribe((status, err) => {
+          this.live = status === "SUBSCRIBED"; // connected or not
+          if (status === "SUBSCRIBED") { this.track(); this.schedule(); return; } // announce myself and read the desks now
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") { console.warn("Hush Hall: live hall channel not connected (desks still update from the database)", status, err?.message ?? ""); sb.realtime.setAuth().catch(() => {}); } // say why in the console; refresh the token for the automatic retry
+        });
+      });
     this.inbox = sb.channel(`inbox:${me.id}`) // Postgres Changes for rows that involve me (RLS filters them)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "join_requests", filter: `to_id=eq.${me.id}` }, (e) => this.gotRequest(e.new as ReqRow)) // a note for me
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "join_requests", filter: `from_id=eq.${me.id}` }, (e) => this.gotAnswer(e.new as ReqRow)) // an answer to my note
       .subscribe(); // start listening
     sb.from("join_requests").select("id,from_id,to_id,hall_id,note,status,room_id,created_at").eq("to_id", me.id).eq("status", "pending").gte("created_at", new Date(Date.now() - 30 * 60000).toISOString()) // setting: notes from the last 30 min still matter
       .then(({ data }) => (data ?? []).forEach((r) => this.gotRequest(r as ReqRow))); // notes sent while I was away
-    this.timer = setInterval(() => this.schedule(), REFRESH_MS); // slow safety refresh
+    this.timer = setInterval(() => { if (Date.now() - this.lastRead >= (this.live ? REFRESH_MS : OFFLINE_REFRESH_MS)) this.schedule(); }, 2000); // safety refresh: slow while live, quicker while the live channel is down
   }
 
   // Push my timer state (desk + topic are already in the database).
@@ -73,7 +90,7 @@ export class SupabasePresence implements PresenceProvider {
 
   // Leave the hall and stop listening.
   leave() {
-    this.myWalk = null; this.lastSig = ""; // nothing to announce after leaving
+    this.myWalk = null; this.lastSig = ""; this.live = false; // nothing to announce after leaving
     this.members.forEach((m) => setWalker(m.id, null)); // forget everyone's walking position
     const sb = this.chan || this.inbox ? supabase() : null; // only if joined
     if (this.chan) { this.chan.untrack().catch(() => {}); sb!.removeChannel(this.chan); } // gone from presence
@@ -162,15 +179,20 @@ export class SupabasePresence implements PresenceProvider {
     const sb = supabase(); // client
     const state = this.chan.presenceState<Beacon>(); // key -> list of tab beacons
     const live = Object.keys(state).filter((id) => id !== this.me!.id && !this.blocked.has(id)); // other accounts here now
+    this.lastRead = Date.now(); // paces the fallback polling
     const { data: desks } = await sb.rpc("hall_desks", { p_hall: this.hall }); // who sits where (authoritative)
     const deskBy = new Map(((desks ?? []) as DeskRow[]).map((d) => [d.user_id, d])); // user -> desk
+    // Everyone to show: people live on the channel, plus everyone holding a desk with a
+    // recent heartbeat. Desks come from the database, so a taken desk and its student
+    // show up even when the live channel is slow or not connected.
+    const ids = [...new Set([...live, ...[...deskBy.keys()].filter((id) => id !== this.me!.id && !this.blocked.has(id))])]; // union, without me or blocked people
     const now = Date.now(); // for profile cache age
-    const need = live.filter((id) => { const c = this.profiles.get(id); return !c || now - c.at > REFRESH_MS; }); // missing or old
+    const need = ids.filter((id) => { const c = this.profiles.get(id); return !c || now - c.at > REFRESH_MS; }); // missing or old
     if (need.length) {
       const { data: pubs } = await sb.rpc("public_profiles", { ids: need }); // safe public fields
       ((pubs ?? []) as Pub[]).forEach((p) => this.profiles.set(p.id, { p, at: now })); // cache
     }
-    this.members = live.flatMap((id) => {
+    this.members = ids.flatMap((id) => {
       const pub = this.profiles.get(id)?.p; // public profile
       if (!pub) return []; // banned / unknown: not shown
       const beacons = state[id] ?? []; // this account's tabs
