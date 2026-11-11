@@ -14,7 +14,7 @@ node scripts/screenshots.mjs   # with dev server running; saves PNGs to ../scree
 - Open **2–3 tabs**: each tab is a different student (per-tab identity in sessionStorage). Presence goes over `BroadcastChannel`.
 - Halls contain a few **demo students** (generated locally, labelled "demo student" on their desk card). Requests to them auto-accept after about 2.5 s.
 - `?speed=60` on a hall URL makes the timer 60× faster for demos.
-- Backends: `lib/presence/index.ts` picks `SupabasePresence` when Supabase is configured, else the BroadcastChannel demo. Database schema and rules: `../supabase/migrations/0001_hush_hall.sql`.
+- Backends: `lib/presence/index.ts` picks `SupabasePresence` when Supabase is configured, else the BroadcastChannel demo. Database schema and rules: `../supabase/migrations/0001_hush_hall.sql`, plus `0002_hall_walkers.sql` (walkers stored in the database).
 - Speed: `node scripts/perf3d.mjs` against `next start -p 3124` measures model download and frame numbers.
 
 ## 3D hall

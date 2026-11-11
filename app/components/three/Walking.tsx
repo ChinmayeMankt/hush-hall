@@ -262,36 +262,70 @@ export function LocalWalker({ body, input, onMove }: LocalProps) {
 }
 
 // Turns someone else's occasional position updates into smooth walking.
+// Updates arrive a few times a second over the live channel, or about once a
+// second from the database when the live channel is down. Instead of guessing
+// ahead (which overshoots when they stop and then slides back), the figure is
+// drawn a short, self-adjusting moment in the past and moves steadily between
+// two real positions, so feet stay planted and nobody moonwalks.
+type Snap = { x: number; z: number; ry: number; pose: "walking" | "idle"; at: number }; // one received position (at = when it was taken)
+
 export function RemoteWalker({ id, body }: { id: string; body: Body }) {
-  const last = useRef<{ x: number; z: number; at: number } | null>(null); // previous sample
-  const vel = useRef({ x: 0, z: 0 }); // estimated velocity from the last two samples
+  const buf = useRef<Snap[]>([]); // recent positions, oldest first
+  const seen = useRef<number | null>(null); // the newest sample already taken in (by its time)
+  const arrived = useRef(0); // performance.now() when the previous new sample arrived
+  const lagE = useRef(0); // smoothed "how old samples are on arrival" (seconds)
+  const gapE = useRef(0.4); // smoothed time between arrivals (seconds)
+  const delay = useRef(0.5); // how far in the past the figure is drawn (seconds); adapts to the update rate
   const tmp = useMemo(() => ({ x: 0, z: 0 }), []); // scratch target
 
   useFrame((_, rawDt) => {
     const dt = Math.min(rawDt, 0.1); // clamp long frames
     const s = walkers.get(id); // latest sample
-    if (!s) { body.hidden = true; return; } // nothing yet (or they stopped walking)
-    if (!last.current || last.current.at !== s.at) { // a new sample arrived
-      const prev = last.current; // the one before
-      const gap = prev ? (s.at - prev.at) / 1000 : 0; // seconds between samples
-      if (prev && gap > 0.05 && gap < 2 && s.pose === "walking") { // two recent samples while walking: estimate their pace
-        let vx = (s.x - prev.x) / gap, vz = (s.z - prev.z) / gap; // raw
-        const sp = Math.hypot(vx, vz); // speed
-        if (sp > WALK_SPEED * 1.4) { vx *= (WALK_SPEED * 1.4) / sp; vz *= (WALK_SPEED * 1.4) / sp; } // ignore implausible jumps
-        vel.current = { x: vx, z: vz }; // keep
-      } else vel.current = { x: 0, z: 0 }; // standing, or too old to guess
-      last.current = { x: s.x, z: s.z, at: s.at }; // remember
+    if (!s) { body.hidden = true; buf.current = []; seen.current = null; return; } // nothing yet (or they stopped walking)
+    const now = performance.now(); // this frame's time
+    const b = buf.current; // shortcut
+    if (seen.current !== s.at) { // a new sample arrived
+      seen.current = s.at; // taken in
+      if (arrived.current) gapE.current += (Math.min((now - arrived.current) / 1000, 2) - gapE.current) * 0.3; // learn the update rate
+      arrived.current = now; // remember this arrival
+      lagE.current += (Math.min(Math.max(now - s.at, 0) / 1000, 2) - lagE.current) * 0.3; // learn how late samples are
+      const prev = b[b.length - 1]; // newest kept sample
+      if (prev && s.at <= prev.at) b.length = 0; // out of order (e.g. a reload): start fresh
+      else if (prev) prev.at = Math.max(prev.at, s.at - 2000); // after a long still spell, don't stretch one step over many seconds
+      b.push({ x: s.x, z: s.z, ry: s.ry, pose: s.pose, at: s.at }); // keep it
+      if (b.length > 8) b.shift(); // a short history is enough
     }
-    const lead = s.pose === "walking" ? Math.min((performance.now() - s.at) / 1000, 0.5) : 0; // predict a little past the last sample
-    const tgt = collide(Object.assign(tmp, { x: s.x + vel.current.x * lead, z: s.z + vel.current.z * lead })); // never predict into furniture
-    if (body.hidden || Math.hypot(tgt.x - body.x, tgt.z - body.z) > 3) { body.x = tgt.x; body.z = tgt.z; body.ry = s.ry; body.speed = 0; body.hidden = false; } // first sight or a big jump: place them directly
+    delay.current += (Math.min(1.8, Math.max(0.25, lagE.current + gapE.current + 0.1)) - delay.current) * ease(1, dt); // drift gently toward "just behind the newest sample"
+    const t = now - delay.current * 1000; // the moment being drawn
+    // Where they were at moment t: between the two samples around it, or the
+    // newest one (nudged a little ahead for at most 0.3 s if it arrived late).
+    let x = b[0].x, z = b[0].z, ry = b[0].ry; // before the first sample: hold it
+    const last = b[b.length - 1]; // newest sample
+    if (t >= last.at) { // past the newest sample
+      x = last.x; z = last.z; ry = last.ry; // hold it
+      const pv = b[b.length - 2]; // the one before
+      if (pv && last.pose === "walking" && last.at > pv.at) { // still moving: continue briefly at their pace
+        const k = Math.min((t - last.at) / (last.at - pv.at), 0.3 / Math.max((last.at - pv.at) / 1000, 0.05)); // at most 0.3 s ahead
+        x += (last.x - pv.x) * k; z += (last.z - pv.z) * k; // short, capped continuation
+      }
+    } else if (t > b[0].at) { // inside the history
+      for (let n = 1; n < b.length; n++) {
+        if (t <= b[n].at) { // samples n-1 and n bracket t
+          const a = b[n - 1], c = b[n], u = (t - a.at) / Math.max(c.at - a.at, 1); // 0..1 between them
+          x = a.x + (c.x - a.x) * u; z = a.z + (c.z - a.z) * u; ry = a.ry + angleTo(a.ry, c.ry) * u; // steady blend (shortest turn)
+          break; // found
+        }
+      }
+    }
+    const tgt = collide(Object.assign(tmp, { x, z })); // never stand inside furniture
+    if (body.hidden || Math.hypot(tgt.x - body.x, tgt.z - body.z) > 3) { body.x = tgt.x; body.z = tgt.z; body.ry = ry; body.speed = 0; body.hidden = false; } // first sight or a big jump: place them directly
     const ox = body.x, oz = body.z; // before
-    const a = ease(4, dt); // smooth follow
-    body.x += (tgt.x - body.x) * a; body.z += (tgt.z - body.z) * a; // glide toward the prediction
+    const a = ease(10, dt); // light smoothing on top (rounds the corners between samples)
+    body.x += (tgt.x - body.x) * a; body.z += (tgt.z - body.z) * a; // follow the drawn path
     const moved = Math.hypot(body.x - ox, body.z - oz); // real displacement this frame
     body.moved += moved; // legs follow real distance
     body.speed += (moved / Math.max(dt, 1e-4) - body.speed) * ease(8, dt); // smoothed speed for the animation blend
-    body.ry += angleTo(body.ry, s.ry) * ease(5, dt); // turn as they turn
+    body.ry += angleTo(body.ry, ry) * ease(8, dt); // turn as they turned
   }, -1); // before the avatars draw
   return null; // no visuals of its own
 }

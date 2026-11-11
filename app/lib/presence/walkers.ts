@@ -12,10 +12,11 @@ export interface WalkSample extends WalkState {
 // id -> latest sample (only other people; my own position lives in the 3D hall).
 export const walkers = new Map<string, WalkSample>(); // shared, mutable on purpose
 
-// Store a new sample for one person.
-export function setWalker(id: string, w: WalkState | null) {
+// Store a new sample for one person. ageMs = how old the sample already was when
+// it arrived (database reads are a moment behind), so motion prediction stays right.
+export function setWalker(id: string, w: WalkState | null, ageMs = 0) {
   if (!w) { walkers.delete(id); return; } // stopped walking: forget the position
-  walkers.set(id, { ...w, at: performance.now() }); // keep the newest sample with its arrival time
+  walkers.set(id, { ...w, at: performance.now() - Math.min(Math.max(ageMs, 0), 3000) }); // newest sample, dated when it was taken (age capped at 3 s)
 }
 
 // Make a received payload safe: finite numbers, kept inside the hall, known pose.
