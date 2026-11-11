@@ -4,18 +4,19 @@
 //  - Outfit colour: the character's own top, or a soft blue / sage
 //    tint multiplied over the original cloth texture (folds and details stay).
 //  - Neck accessory (ribbon / tie) on or off, on characters that have one.
-//  - Shoes on or off. Every character has modelled feet under the shoes.
-// Socks: on these characters socks, tights and leg warmers are painted into the
-// body texture (not separate meshes), so removing them would mean repainting each
-// character's skin texture. Not done (it would risk a patchy look); "shoes off"
-// shows whatever the character wears under the shoes (socks, tights or bare feet).
+//  - Shoes and socks off as one choice (look.shoes = "off"): hide the shoe
+//    meshes and, on characters whose socks, tights or leg warmers are painted
+//    into the body texture, swap in a bare-leg/foot variant of that texture
+//    (see BARE_BODY and public/looks/). Faces, hair and anything above the
+//    legs are untouched. Characters already barefoot under the shoes just
+//    hide the shoes.
 // No three.js import: the profile page and presence code can use this too.
 
 // One person's choices.
 export interface Look {
   top: "orig" | "blue" | "sage"; // outfit colour
   neck: "on" | "off"; // neck accessory (ribbon / tie) where the character has one
-  shoes: "on" | "off"; // shoes on, or barefoot
+  shoes: "on" | "off"; // shoes on, or shoes and socks off (barefoot)
 }
 
 // What everyone wears unless they choose otherwise (the characters as approved).
@@ -29,6 +30,19 @@ export const TOP_LABELS: Record<Look["top"], string> = { orig: "Original", blue:
 
 // Characters that wear a neck accessory (from the model files' material list).
 export const HAS_NECK = new Set(["sendagaya_shibu.vrm", "sendagaya_shino.vrm", "sakurada_fumiriya.vrm"]); // ribbon / tie
+
+// Bare-leg/foot variants of each character's own Body_00 texture (512x512 PNG,
+// same resolution as the source). Swap these onto the body material when
+// shoes=off (vrm.ts). Every character in the current roster has a variant.
+export const BARE_BODY: Record<string, string> = {
+  "sendagaya_shibu.vrm": "/looks/sendagaya_shibu.body-bare.png", // knee-high socks painted out
+  "sendagaya_shino.vrm": "/looks/sendagaya_shino.body-bare.png", // same body texture as Shibu
+  "vivi.vrm": "/looks/vivi.body-bare.png", // mid-calf leg warmers painted out (feet were already bare)
+  "victoria_rubin.vrm": "/looks/victoria_rubin.body-bare.png", // thigh-high tights painted out
+  "vita.vrm": "/looks/vita.body-bare.png", // gradient leggings and navy soles painted out
+  "sakurada_fumiriya.vrm": "/looks/sakurada_fumiriya.body-bare.png", // ankle socks under the trouser cuffs
+  "hairsample_male.vrm": "/looks/hairsample_male.body-bare.png", // ankle socks under the trouser cuffs
+};
 
 // Read a stored look string ("top=blue;neck=off;shoes=off"); anything unknown falls back to the default.
 export function parseLook(s?: string | null): Look {

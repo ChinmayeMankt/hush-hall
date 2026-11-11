@@ -217,7 +217,7 @@ export function WardrobeDialog(props: {
         )}
         <label className="toggle" style={{ marginTop: 10 }}>
           <input type="checkbox" checked={look.shoes === "off"} onChange={(e) => pick({ shoes: e.target.checked ? "off" : "on" })} />
-          Shoes off (barefoot, like a reading room at home)
+          Shoes and socks off
         </label>
         <div className="actions">
           <button type="button" className="ghost" onClick={props.onCancel}>Cancel</button>

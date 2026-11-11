@@ -17,7 +17,7 @@ import { VRMLoaderPlugin, VRMUtils, type VRM, type VRMHumanBoneName, VRMExpressi
 // The character roster lives in models.ts (no three.js import), so the page can prefetch files early.
 export { MODELS } from "./models"; // re-exported for existing imports
 import { fetchModel } from "./models"; // shared, de-duplicated downloads
-import { TOP_TINTS, type Look } from "./looks"; // wardrobe choices
+import { TOP_TINTS, BARE_BODY, type Look } from "./looks"; // wardrobe choices
 
 // Finger joints we pose: 5 fingers x 3 joints x 2 hands.
 export const FINGERS = ["Thumb", "Index", "Middle", "Ring", "Little"] as const; // thumb first
@@ -43,6 +43,7 @@ export interface Template {
   hipsY: number; // hips height at rest (metres)
   morphs: Record<"blink" | "happy" | "relaxed", { mesh: string; index: number }[]>; // expression -> mesh/morph pairs
   isVRM0: boolean; // VRM 0.x needs X/Z rotations mirrored
+  bareBody?: THREE.Texture; // socks-off body map, swapped in when shoes=off
 }
 
 // A posable clone handed to an avatar.
@@ -115,7 +116,17 @@ export function loadTemplate(file: string): Promise<Template> {
       });
     }
     const isVRM0 = vrm.meta?.metaVersion === "0"; // spec version
-    return { scene: vrm.scene, boneNames, hipsY, morphs, isVRM0 };
+    // Bare-leg/foot body texture, loaded once with the template so dressing
+    // a clone can swap it in without a later flicker of socks.
+    let bareBody: THREE.Texture | undefined; // missing = no variant for this file
+    const bareUrl = BARE_BODY[file]; // per-character path under public/looks
+    if (bareUrl) {
+      bareBody = await new THREE.TextureLoader().loadAsync(bareUrl); // same origin
+      bareBody.colorSpace = THREE.SRGBColorSpace; // the PNG is sRGB, like the original body map
+      bareBody.flipY = false; // glTF / VRM UVs start at the top-left, not WebGL's bottom-left
+      bareBody.needsUpdate = true; // apply the colour space and flip
+    }
+    return { scene: vrm.scene, boneNames, hipsY, morphs, isVRM0, bareBody };
   })();
   cache.set(url, p); // remember even while loading
   p.catch(() => cache.delete(url)); // allow retry after a failure
@@ -124,7 +135,7 @@ export function loadTemplate(file: string): Promise<Template> {
 
 // Make a cheap clone: shared geometry/materials, own bones and morph weights.
 // `tint` optionally recolours skin/hair (allowed: the models are CC0).
-// `look` applies the wardrobe: outfit tint, neck accessory and shoes (see looks.ts).
+// `look` applies the wardrobe: outfit tint, neck accessory, and shoes/socks (see looks.ts).
 export function instantiate(t: Template, tint?: { skin?: THREE.Color; hair?: THREE.Color }, look?: Look): Instance {
   const root = skeletonClone(t.scene); // new bones, shared buffers
   // Map original objects -> clones (same traversal order) to find morph meshes.
@@ -136,7 +147,7 @@ export function instantiate(t: Template, tint?: { skin?: THREE.Color; hair?: THR
   const morphs = Object.fromEntries(Object.entries(t.morphs).map(([k, list]) => [k, list.map((x) => ({ mesh: byUuid.get(x.mesh) as THREE.Mesh, index: x.index })).filter((x) => x.mesh)])) as Record<string, { mesh: THREE.Mesh; index: number }[]>; // per-clone targets
   root.traverse((o) => { o.frustumCulled = false; (o as THREE.Mesh).raycast = () => {}; }); // clones don't copy these: no culling glitches, no click stealing
   if (tint) root.traverse((o) => tintMesh(o as THREE.Mesh, tint)); // recolour
-  if (look) root.traverse((o) => dress(o as THREE.Mesh, look)); // wardrobe choices
+  if (look) root.traverse((o) => dress(o as THREE.Mesh, look, t.bareBody)); // wardrobe choices
   return {
     root, bones, hipsY: t.hipsY, sign: t.isVRM0 ? -1 : 1,
     setExpression: (name, w) => morphs[name]?.forEach(({ mesh, index }) => { if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[index] = w; }), // set weight
@@ -150,7 +161,7 @@ export function instantiate(t: Template, tint?: { skin?: THREE.Color; hair?: THR
 // the desk lamp were bouncing light up off the open book, and lift their shadow
 // colour so the shaded side of the face still shows its features.
 const FILL = new THREE.Color("#ffd9b0"); // warm lamp-bounce colour
-type Toon = THREE.Material & { color?: THREE.Color; map?: THREE.Texture | null; emissive?: THREE.Color; emissiveMap?: THREE.Texture | null; shadeColorFactor?: THREE.Color }; // MToon fields we touch
+type Toon = THREE.Material & { color?: THREE.Color; map?: THREE.Texture | null; emissive?: THREE.Color; emissiveMap?: THREE.Texture | null; shadeColorFactor?: THREE.Color; shadeMultiplyTexture?: THREE.Texture | null }; // MToon fields we touch
 function faceFill(m: THREE.Mesh) {
   if (!m.isMesh) return; // only meshes
   const mats = (Array.isArray(m.material) ? m.material : [m.material]) as Toon[]; // surface (+ outline)
@@ -168,14 +179,39 @@ function faceFill(m: THREE.Mesh) {
 }
 
 // Wardrobe on one clone's mesh: hide shoes or the neck accessory (each is its
-// own mesh after merging, so nothing else changes), and tint the top.
-function dress(m: THREE.Mesh, look: Look) {
+// own mesh after merging, so nothing else changes), tint the top, and when
+// shoes are off, swap the body skin map for the bare-leg/foot variant so
+// painted socks, tights and leg warmers come off with the shoes.
+function dress(m: THREE.Mesh, look: Look, bareBody?: THREE.Texture) {
   if (!m.isMesh) return; // only meshes
-  const name = (Array.isArray(m.material) ? m.material[0] : m.material).name; // material name tells the part
-  if (/_Shoes_/.test(name)) m.visible = look.shoes !== "off"; // barefoot: the modelled feet underneath show
+  const mats = (Array.isArray(m.material) ? m.material : [m.material]) as Toon[]; // surface (+ outline)
+  const name = mats[0]?.name ?? ""; // material name tells the part
+  if (/_Shoes_/.test(name)) m.visible = look.shoes !== "off"; // hide the shoe mesh
   if (/_AccessoryNeck_/.test(name)) m.visible = look.neck !== "off"; // ribbon / tie
   const tint = /_Tops_/.test(name) ? TOP_TINTS[look.top] : null; // outfit colour
   if (tint) tintMesh(m, { cloth: new THREE.Color(tint) }); // multiplied over the cloth texture
+  // Body skin is shared across clones, so we clone the material (like
+  // tintCache) rather than mutating the original map. The MToon shade
+  // slot also uses Body_00; if we only swapped map, socks would still
+  // show in the shaded areas.
+  if (bareBody && look.shoes === "off" && /Body_00_SKIN/.test(name)) {
+    m.material = Array.isArray(m.material) ? mats.map((mat) => bareSkin(mat, bareBody)) : bareSkin(mats[0], bareBody); // both passes
+  }
+}
+
+// Shared bare-skin material variants (ten avatars with shoes off still share one).
+const bareCache = new Map<string, THREE.Material>(); // original uuid -> bare clone
+function bareSkin(mat: Toon, tex: THREE.Texture): THREE.Material {
+  const key = `${mat.uuid}:bare`; // one clone per source material
+  if (!bareCache.has(key)) {
+    const v = mat.clone() as Toon; // leave the shared original untouched
+    v.map = tex; // lit colour
+    if ("shadeMultiplyTexture" in v) v.shadeMultiplyTexture = tex; // MToon shade (same Body_00 on these characters)
+    if (v.emissiveMap) v.emissiveMap = tex; // faceFill glow follows the painted skin, including bare legs
+    v.needsUpdate = true; // pick up the new maps
+    bareCache.set(key, v); // share
+  }
+  return bareCache.get(key)!; // reused
 }
 
 // Shared tinted material variants (so ten avatars with the same tint still share one material).
