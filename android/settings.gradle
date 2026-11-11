@@ -1,0 +1,11 @@
+// Hush Hall Android: a Trusted Web Activity that opens https://hush-hall.vercel.app
+// full screen in the user's browser engine (no rewrite; the web app is the app).
+pluginManagement {
+    repositories { google(); mavenCentral(); gradlePluginPortal() } // where Gradle plugins come from
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS) // one list of repositories for the whole build
+    repositories { google(); mavenCentral() } // Android + browser-helper libraries
+}
+rootProject.name = "HushHall" // project name
+include ":app" // the single app module

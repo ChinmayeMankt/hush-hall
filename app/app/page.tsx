@@ -17,6 +17,9 @@ export default function Lobby() {
   const [counts, setCounts] = useState<Record<string, number> | null>(null); // people seated per hall (real mode)
   const [notices, setNotices] = useState<{ id: string; body: string }[]>([]); // private notices
   const [saved, setSaved] = useState<"" | "saving" | "saved" | "not_saved">(""); // nickname save state
+  // After "Delete account" the browser lands here with ?deleted=1: say it plainly once.
+  const [deleted, setDeleted] = useState(false); // show the "account deleted" line?
+  useEffect(() => { setDeleted(new URLSearchParams(window.location.search).get("deleted") === "1"); }, []); // read the flag after mount
 
   // Load account, history, hall counts and notices once on mount.
   useEffect(() => {
@@ -49,9 +52,10 @@ export default function Lobby() {
     <div>
       <section className="hero">
         <h1>Welcome to the library.</h1>
+        {deleted && <p className="small">Your account and its data have been deleted.</p>}
         <p className="muted">Take a numbered desk in a quiet hall, write what you’re working on, and study next to other people. No chat, no feeds, no guilt.</p>
         <p><a className="btn sage" href="/signin">Sign in or create an account</a></p>
-        <p className="small muted">Hush Hall is for people aged 18 and over. Your desk shows only your nickname, avatar and topic. <a href="/rules">House rules &amp; privacy</a></p>
+        <p className="small muted">Hush Hall is for people aged 18 and over. Your desk shows only your nickname, avatar and topic. <a href="/rules">House rules</a> · <a href="/privacy">Privacy policy</a></p>
       </section>
     </div>
   );
@@ -97,7 +101,7 @@ export default function Lobby() {
             <input type="checkbox" checked={profile.hideFromRequests} onChange={(e) => patch({ hideFromRequests: e.target.checked })} />
             Hide me from study-room requests
           </span>
-          {hasSupabase && <p className="small muted" style={{ marginTop: 10 }}><a href="/me">My study log &amp; account</a>{acct.state === "ready" && acct.isModerator && <> · <a href="/mod">Report queue</a></>}</p>}
+          {hasSupabase && <p className="small muted" style={{ marginTop: 10 }}><a href="/me">My study log &amp; account</a> · <a href="/privacy">Privacy</a>{acct.state === "ready" && acct.isModerator && <> · <a href="/mod">Report queue</a></>}</p>}
         </section>
 
         {/* Gentle week summary: counts what you did, never what you missed */}

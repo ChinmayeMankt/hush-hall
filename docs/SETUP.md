@@ -61,3 +61,8 @@ Vercel says Hobby is for personal, non-commercial use; move to Pro before Hush H
 
 - Database rules: `supabase/tests/local_stub.sql` + the migration + `supabase/tests/rules_test.sql` on any scratch Postgres 15+ (prints `ALL_RULES_OK`); then `0002_hall_walkers.sql` + `supabase/tests/walkers_test.sql` (prints `ALL_WALKER_RULES_OK`).
 - Voice grants were checked against a local `livekit-server --dev`: a second participant received the microphone track and a camera publish was refused.
+- Account deletion: `account_delete_test.sql` after both migrations (prints `ALL_DELETE_RULES_OK`): deleting the login leaves no rows about that person.
+
+## Google Play (Android app)
+
+See `docs/PLAY.md`: package `app.hushhall.android`, how to build the AAB, where the upload keystore lives, and what's still needed (US$25 fee, identity verification, 12 testers for 14 days).

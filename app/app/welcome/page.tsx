@@ -65,7 +65,7 @@ export default function Welcome() {
       </div>
       <span className="toggle" style={{ marginTop: 14 }}>
         <input type="checkbox" checked={rules} onChange={(e) => setRules(e.target.checked)} />
-        I’ve read and agree to the <a href="/rules" target="_blank">house rules, terms and privacy notice</a>.
+        I’ve read and agree to the <a href="/rules" target="_blank">house rules, terms</a> and <a href="/privacy" target="_blank">privacy policy</a>.
       </span>
       {msg && <p className="small muted">{msg}</p>}
       <div className="actions"><button type="submit" className="sage" disabled={busy || !rules || !nickname.trim() || !dob}>{busy ? "One moment…" : "Walk in"}</button></div>

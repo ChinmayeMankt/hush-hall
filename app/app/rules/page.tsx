@@ -9,6 +9,8 @@ export default function Rules() {
     <article className="card prose">
       <h1>House rules, terms &amp; privacy</h1>
       <p className="small muted">Version {TERMS_VERSION}. Draft: to be reviewed before Hush Hall launches publicly.</p>
+      {/* The full privacy policy lives on its own page (also the Google Play policy URL) */}
+      <p className="small">Full details: <a href="/privacy">Privacy policy</a> · <a href="/delete-account">Deleting your account</a></p>
 
       <h2>House rules</h2>
       <ul>
@@ -50,7 +52,7 @@ export default function Rules() {
       <h3>Services we use</h3>
       <p>Accounts and data are stored with Supabase. Voice rooms run through LiveKit. The site is served by our web host.</p>
       <h3>Your choices</h3>
-      <p>You can change your nickname and settings at any time, and delete your account and all of its data from <a href="/me">My study log</a>.</p>
+      <p>You can change your nickname and settings at any time, and delete your account and all of its data from <a href="/me#delete-account">My study log</a>. More in the <a href="/privacy">privacy policy</a>.</p>
     </article>
   );
 }

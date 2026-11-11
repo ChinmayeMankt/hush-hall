@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.hushhall.android",
+      "sha256_cert_fingerprints": [
+        "80:1A:CD:04:A5:33:8B:64:50:DC:60:A5:41:AD:8A:CB:80:90:9E:51:69:3C:B8:A3:E6:37:79:17:D4:22:DD:BC"
+      ]
+    }
+  }
+]

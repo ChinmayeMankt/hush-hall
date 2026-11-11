@@ -1,0 +1,69 @@
+// Hush Hall app module: a Trusted Web Activity (TWA) built on Google's
+// android-browser-helper. It shows the live site full screen; Digital Asset
+// Links at https://hush-hall.vercel.app/.well-known/assetlinks.json prove the
+// app and the site belong together, so no browser bar is shown.
+plugins {
+    id "com.android.application" // Android app
+}
+
+// Release signing comes from a gitignored properties file (path, alias and
+// passwords). Override its location with -PhushHallKeystoreProps=/path if needed.
+def keystorePropsFile = file(project.findProperty("hushHallKeystoreProps") ?: "${rootDir}/.secrets/keystore.properties") // default: android/.secrets/keystore.properties
+def keystoreProps = new Properties() // empty unless the file exists
+if (keystorePropsFile.exists()) keystorePropsFile.withInputStream { keystoreProps.load(it) } // read signing details
+
+// The site the app opens (one place to change it, e.g. for a custom domain later).
+def siteHost = "hush-hall.vercel.app" // host verified by Digital Asset Links
+def startUrl = "https://${siteHost}/" // first page (the lobby; signed-in people land in their hall from there)
+
+android {
+    namespace "app.hushhall.android" // Java/Kotlin package for generated code
+    compileSdk 35 // Android 15 APIs
+
+    defaultConfig {
+        applicationId "app.hushhall.android" // Play package name: permanent once published
+        minSdk 21 // Android 5.0+; older Chrome falls back to a Custom Tab
+        targetSdk 35 // Play's current target-level requirement
+        versionCode 1 // bump for every Play upload
+        versionName "1.0.0" // shown to people
+
+        // Values used by AndroidManifest.xml and the TWA launcher.
+        manifestPlaceholders = [
+            hostName       : siteHost, // verified origin
+            defaultUrl     : startUrl, // what the app opens
+            launcherName   : "Hush Hall", // name under the icon
+            themeColor     : "#F6EFE2", // status bar colour (paper, same as the site header)
+            navColor       : "#F6EFE2", // navigation bar colour (paper)
+            backgroundColor: "#F6EFE2", // splash background (paper)
+        ]
+        resValue "string", "app_name", "Hush Hall" // app label
+        resValue "string", "asset_statements", "[{ \\\"relation\\\": [\\\"delegate_permission/common.handle_all_urls\\\"], \\\"target\\\": { \\\"namespace\\\": \\\"web\\\", \\\"site\\\": \\\"https://${siteHost}\\\" } }]" // app-side half of Digital Asset Links
+    }
+
+    signingConfigs {
+        release {
+            if (keystoreProps["storeFile"]) { // only when the secrets file exists
+                storeFile file(keystoreProps["storeFile"]) // upload keystore (gitignored)
+                storePassword keystoreProps["storePassword"] // from the secrets file, never in git
+                keyAlias keystoreProps["keyAlias"] // "upload"
+                keyPassword keystoreProps["keyPassword"] // from the secrets file, never in git
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false // tiny app: nothing to shrink
+            signingConfig keystoreProps["storeFile"] ? signingConfigs.release : null // unsigned if no keystore is present
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17 // Java 17 toolchain
+        targetCompatibility JavaVersion.VERSION_17 // Java 17 bytecode
+    }
+}
+
+dependencies {
+    implementation "com.google.androidbrowserhelper:androidbrowserhelper:2.5.0" // Google's TWA launcher, splash and fallback
+}

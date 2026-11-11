@@ -33,7 +33,7 @@ export default function SignIn() {
           <input id="email" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
           {stage === "error" && <p className="small muted">That didn’t send. Check the address and try again in a minute.</p>}
           <div className="actions"><button type="submit" className="sage" disabled={stage === "sending" || !email.includes("@")}>{stage === "sending" ? "Sending…" : "Email me a link"}</button></div>
-          <p className="small muted">Hush Hall is for people aged 18 and over. <a href="/rules">House rules &amp; privacy</a></p>
+          <p className="small muted">Hush Hall is for people aged 18 and over. <a href="/rules">House rules</a> · <a href="/privacy">Privacy policy</a></p>
         </form>
       )}
     </div>

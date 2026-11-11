@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brand colours (same as the web icon) -->
+<resources>
+    <color name="ic_launcher_background">#A47148</color> <!-- warm brown tile -->
+</resources>
