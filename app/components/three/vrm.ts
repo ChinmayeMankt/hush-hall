@@ -24,12 +24,21 @@ export const MODELS = [
   { file: "sendagaya_shino.vrm", name: "Sendagaya Shino" }, // β-era sample
 ] as const;
 
+// Finger joints we pose: 5 fingers x 3 joints x 2 hands.
+export const FINGERS = ["Thumb", "Index", "Middle", "Ring", "Little"] as const; // thumb first
+// Joint names, knuckle -> tip. three-vrm uses VRM 1.0 names, where the thumb's
+// joints are Metacarpal/Proximal/Distal (VRM 0.x files are mapped onto these).
+export const jointsOf = (f: (typeof FINGERS)[number]) => (f === "Thumb" ? ["Metacarpal", "Proximal", "Distal"] : ["Proximal", "Intermediate", "Distal"]) as readonly string[]; // per finger
+export const boneOf = (side: "left" | "right", f: (typeof FINGERS)[number], j: number) => `${side}${f}${jointsOf(f)[j]}` as VRMHumanBoneName; // e.g. "leftIndexProximal"
+const FINGER_BONES = (["left", "right"] as const).flatMap((s) => FINGERS.flatMap((f) => [0, 1, 2].map((j) => boneOf(s, f, j)))); // all 30 finger bones
+
 // Bones we pose. Everything else stays at rest.
 const BONES: VRMHumanBoneName[] = [
   "hips", "spine", "chest", "upperChest", "neck", "head",
   "leftUpperLeg", "leftLowerLeg", "leftFoot", "rightUpperLeg", "rightLowerLeg", "rightFoot",
   "leftShoulder", "leftUpperArm", "leftLowerArm", "leftHand", "rightShoulder", "rightUpperArm", "rightLowerArm", "rightHand",
-  "leftMiddleProximal", "rightMiddleProximal", // to lay hands flat
+  "leftEye", "rightEye", // eyes glance down at the book while the head stays a little higher
+  ...FINGER_BONES, // all finger joints, so hands can rest relaxed instead of splayed
 ];
 
 // One loaded model, ready to clone.
@@ -94,6 +103,7 @@ export function loadTemplate(file: string): Promise<Template> {
       if (m.isMesh && Array.isArray(m.material) && /CLOTH|Body/.test(m.material[0].name)) { m.material = m.material[0]; m.geometry.clearGroups(); } // surface only
     });
     mergeByMaterial(gltf.scene); // fewer draw calls
+    gltf.scene.traverse((o) => faceFill(o as THREE.Mesh)); // soft "desk lamp" fill on faces and hands (shared by every clone)
     const extras: THREE.Object3D[] = []; // spring-bone colliders + the normalized rig (we pose raw bones, no physics)
     gltf.scene.traverse((o) => { if ("colliderMatrix" in o || o === vrm.humanoid.normalizedHumanBonesRoot) extras.push(o); }); // can't be cloned safely
     extras.forEach((o) => o.removeFromParent()); // drop them
@@ -136,6 +146,30 @@ export function instantiate(t: Template, tint?: { skin?: THREE.Color; hair?: THR
   };
 }
 
+// Face fill: the hall is lit from high above, so a head tilted toward a book
+// falls into shadow and the eyes, nose and mouth disappear. Instead of adding a
+// real light per student (every extra light costs every pixel in the hall), we
+// give face and hand materials a faint warm glow from their own texture, as if
+// the desk lamp were bouncing light up off the open book, and lift their shadow
+// colour so the shaded side of the face still shows its features.
+const FILL = new THREE.Color("#ffd9b0"); // warm lamp-bounce colour
+type Toon = THREE.Material & { color?: THREE.Color; map?: THREE.Texture | null; emissive?: THREE.Color; emissiveMap?: THREE.Texture | null; shadeColorFactor?: THREE.Color }; // MToon fields we touch
+function faceFill(m: THREE.Mesh) {
+  if (!m.isMesh) return; // only meshes
+  const mats = (Array.isArray(m.material) ? m.material : [m.material]) as Toon[]; // surface (+ outline)
+  for (const mat of mats) {
+    const face = /_Face_|_EYE|_FACE/.test(mat.name); // face skin, eyes, brows, lashes, mouth
+    const skin = /Body_00_SKIN/.test(mat.name); // body skin (shows on hands)
+    if ((!face && !skin) || !mat.color || !mat.emissive || mat.userData.filled) continue; // only skin/face MToon, once
+    const glow = face ? 0.22 : 0.12; // faces get more fill than hands
+    if (mat.map) { mat.emissiveMap = mat.map; mat.emissive.copy(FILL).multiplyScalar(glow); } // glow follows the painted texture, so eyes stay dark and skin stays skin-coloured
+    else mat.emissive.copy(mat.color).multiply(FILL).multiplyScalar(glow); // untextured fallback: glow in the base colour
+    mat.shadeColorFactor?.lerp(mat.color, face ? 0.45 : 0.25); // shaded side moves part-way toward the lit colour (softer shadow, same mood)
+    mat.userData.filled = true; // don't apply twice (outline pass can share the material)
+    mat.needsUpdate = true; // recompile with the emissive map
+  }
+}
+
 // Shared tinted material variants (so ten avatars with the same tint still share one material).
 const tintCache = new Map<string, THREE.Material>(); // key -> material
 function tintMesh(m: THREE.Mesh, tint: { skin?: THREE.Color; hair?: THREE.Color }) {
@@ -149,6 +183,7 @@ function tintMesh(m: THREE.Mesh, tint: { skin?: THREE.Color; hair?: THREE.Color 
       const v = mat.clone() as THREE.Material & { color?: THREE.Color; shadeColorFactor?: THREE.Color }; // MToon copy
       v.color?.multiply(c); // lit colour
       v.shadeColorFactor?.multiply(c); // shadow colour
+      (v as Toon).emissive?.multiply(c); // face fill glow follows the skin tint too
       tintCache.set(key, v); // share
     }
     return tintCache.get(key)!;

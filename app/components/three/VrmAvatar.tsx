@@ -13,7 +13,7 @@ import { useFrame, useThree } from "@react-three/fiber"; // render loop
 import * as THREE from "three"; // math
 import type { Phase } from "@/lib/presence/types"; // pose source
 import LowPolyAvatar from "./Avatar"; // fallback
-import { MODELS, loadTemplate, instantiate, type Instance } from "./vrm"; // VRM loading + clones
+import { MODELS, FINGERS, boneOf, loadTemplate, instantiate, type Instance } from "./vrm"; // VRM loading + clones + finger names
 
 // Stable hash for per-student variety (same as the low-poly avatar).
 const hash = (s: string) => [...s].reduce((a, c) => (a * 33 + c.charCodeAt(0)) >>> 0, 5381); // djb2
@@ -54,6 +54,53 @@ function aim(bone: THREE.Object3D, child: THREE.Object3D, dir: THREE.Vector3) {
   bone.quaternion.setFromUnitVectors(rest, local); // shortest rotation
   bone.updateWorldMatrix(false, true); // refresh this branch
 }
+
+// Turn a bone so two of its rest directions land on two world directions:
+// `restF` (e.g. wrist -> middle knuckle) goes along `f`, and `restN`
+// (e.g. palm normal) goes as close to `n` as possible. Unlike aim(), this also
+// fixes the roll, so a palm can be told to face down instead of sideways.
+const W = { f: new THREE.Vector3(), n: new THREE.Vector3(), x: new THREE.Vector3(), rf: new THREE.Vector3(), rn: new THREE.Vector3(), rx: new THREE.Vector3(), mw: new THREE.Matrix4(), mr: new THREE.Matrix4(), q: new THREE.Quaternion() }; // own scratch (aim/ik2 use V)
+function orient(bone: THREE.Object3D, restF: THREE.Vector3, restN: THREE.Vector3, f: THREE.Vector3, n: THREE.Vector3) {
+  bone.parent!.getWorldQuaternion(W.q).invert(); // world -> parent space
+  const lf = W.f.copy(f).applyQuaternion(W.q).normalize(); // wanted forward, in parent space
+  const ln = W.n.copy(n).applyQuaternion(W.q); // wanted normal, in parent space
+  ln.addScaledVector(lf, -ln.dot(lf)).normalize(); // make it exactly perpendicular to forward
+  W.mw.makeBasis(lf, ln, W.x.crossVectors(lf, ln)); // wanted frame
+  const rf = W.rf.copy(restF).normalize(); // rest forward (rest rotations are identity)
+  const rn = W.rn.copy(restN).addScaledVector(rf, -restN.dot(rf)).normalize(); // rest normal, perpendicular
+  W.mr.makeBasis(rf, rn, W.rx.crossVectors(rf, rn)); // rest frame
+  bone.quaternion.setFromRotationMatrix(W.mw.multiply(W.mr.transpose())); // rotation taking rest frame to wanted frame
+  bone.updateWorldMatrix(false, true); // refresh this branch
+}
+
+// Relaxed finger curl per joint (radians), knuckle -> tip. A resting human hand
+// is never flat: fingers bend gently, the little finger a bit more than the index.
+const CURL = { Thumb: [0.15, 0.2, 0.15], Index: [0.3, 0.35, 0.2], Middle: [0.35, 0.4, 0.25], Ring: [0.4, 0.45, 0.25], Little: [0.45, 0.5, 0.3] } as const; // per finger, per joint
+const PALM_DOWN = new THREE.Vector3(0, -1, 0); // VRoid T-pose: palms face the floor at rest
+const AX = new THREE.Vector3(); // scratch curl axis
+
+// Bend every finger of one hand toward the palm by `amount` x CURL.
+function curlFingers(B: Instance["bones"], L: "left" | "right", amount: number) {
+  for (const f of FINGERS) {
+    for (let j = 0; j < 3; j++) {
+      const bone = B[boneOf(L, f, j)]; // this joint
+      if (!bone) continue; // model without that joint
+      const next = B[boneOf(L, f, Math.min(j + 1, 2))]; // the joint after it (tip uses its own)
+      const dir = (next && next !== bone ? next.position : bone.position); // which way this finger segment points at rest
+      AX.crossVectors(dir, PALM_DOWN).normalize(); // turning about this axis moves the segment toward the palm
+      bone.quaternion.setFromAxisAngle(AX, CURL[f][j] * amount); // bend
+    }
+  }
+  // Thumb: at rest it sticks out sideways (T-pose). Swing it part-way toward the
+  // index finger, the way a relaxed thumb lies alongside the hand.
+  const th = B[`${L}ThumbMetacarpal`], ti = B[`${L}ThumbProximal`], mid = B[`${L}MiddleProximal`]; // thumb root, its next joint, hand direction
+  if (th && ti && mid) {
+    const tuck = TQ.setFromUnitVectors(TV.a.copy(ti.position).normalize(), TV.b.copy(mid.position).normalize()); // full swing: thumb pointing where the fingers point
+    th.quaternion.premultiply(TQ2.identity().slerp(tuck, 0.45 * amount)); // apply part of it, after the small curl
+  }
+}
+const TQ = new THREE.Quaternion(), TQ2 = new THREE.Quaternion(); // thumb scratch rotations
+const TV = { a: new THREE.Vector3(), b: new THREE.Vector3() }; // thumb scratch vectors
 
 // Two-bone IK: root -> mid -> end reaching `target`, elbow/knee bending toward `pole`.
 function ik2(root: THREE.Object3D, mid: THREE.Object3D, end: THREE.Object3D, target: THREE.Vector3, pole: THREE.Vector3) {
@@ -103,11 +150,13 @@ export default function VrmAvatar(props: Props) {
     const { bones: B, root, sign } = inst; // shortcuts
     const brk = phase === "break", foc = phase === "focus"; // which pose
     const breath = reduced ? 0 : Math.sin((t + t0) * 1.3) * 0.012; // slow breathing
-    const lean = (brk ? -0.12 : foc ? 0.3 : 0.12) + breath; // spine lean (radians, + = forward)
+    const lean = (brk ? -0.12 : foc ? 0.22 : 0.1) + breath; // spine lean (radians, + = forward); a little more upright than before so the face isn't hidden
     const set = (b: THREE.Object3D | undefined, x: number, y = 0, z = 0) => b?.rotation.set(x * sign, y, z * sign); // body-frame -> raw frame
     set(B.hips, 0); set(B.spine, lean * 0.5); set(B.chest, lean * 0.3); set(B.upperChest, lean * 0.2); // curved back
     const sway = reduced ? 0 : Math.sin((t + t0) * 0.4) * 0.04; // tiny head drift
-    set(B.neck, brk ? -0.1 : foc ? 0.12 : 0.05); set(B.head, brk ? -0.15 : foc ? 0.16 : 0.04, sway, 0); // eyes down at the book, face still visible
+    set(B.neck, brk ? -0.1 : foc ? 0.06 : 0.03); set(B.head, brk ? -0.15 : foc ? 0.08 : 0.02, sway, 0); // head only slightly bowed, so the face (and eyes) stay visible from across the hall
+    const gaze = brk ? 0 : foc ? 0.12 : 0.05; // eyes glance down at the book instead of the whole head dropping (small, so the eyes stay open-looking)
+    set(B.leftEye, gaze); set(B.rightEye, gaze); // both eyes look down together
     root.updateWorldMatrix(true, true); // refresh before IK
     // World helpers: forward/right for this seat.
     const fx = (side: number, fwd: number, y: number) => V.b.set(position[0] + side * facing, y, position[2] + fwd * facing); // side>0 = student's left
@@ -133,13 +182,17 @@ export default function VrmAvatar(props: Props) {
         pole.set(s * facing, 0, -facing * 0.3).normalize(); // elbows out
       } else {
         const turn = s < 0 ? page : 0; // right hand turns pages
-        tgt.copy(fx(s * (0.16 - turn * 0.1), 0.37 + turn * 0.08, TOP_Y + 0.05 + turn * 0.06)); // wrists resting just past the desk edge
+        tgt.copy(fx(s * (0.16 - turn * 0.1), 0.37 + turn * 0.08, TOP_Y + 0.045 + turn * 0.06)); // wrists resting just past the desk edge, just above the wood
         pole.set(s * facing * 0.9, -1, -facing * 0.4).normalize(); // elbows down and slightly out
       }
       ik2(up, lo, hd, tgt, pole); // place arm
-      const fin = B[`${L}MiddleProximal`]; // finger root
-      if (fin && !brk) aim(hd, fin, V.b.set(-s * facing * 0.25, -0.04, facing).normalize()); // palm flat on the desk, fingers forward and a little inward
-      else hd.rotation.set(0, 0, 0); // open hands up high
+      const fin = B[`${L}MiddleProximal`]; // finger root (wrist -> middle knuckle = "hand forward")
+      if (fin && !brk) {
+        const fwd = V.b.set(-s * facing * 0.3, 0.02, facing); // fingers point forward and a little inward; level, so the curled fingertips meet the desk instead of sinking into it
+        const palm = V.c.set(-s * facing * 0.35, -1, 0); // palm faces the desk, rolled a little toward the body's centre (pinky edge lower, like a resting hand)
+        orient(hd, fin.position, PALM_DOWN, fwd, palm); // set wrist direction and roll together (fixes the sideways "claw" palms)
+      } else hd.rotation.set(0, 0, 0); // open hands up high
+      curlFingers(B, L, brk ? 0.4 : 1); // relaxed, gently bent fingers (looser while stretching)
     }
     // Face: blink every few seconds; smile on break.
     let blink = 0; // 0 open .. 1 closed
@@ -148,7 +201,7 @@ export default function VrmAvatar(props: Props) {
       if (t > blinkAt.current) blink = Math.sin(((t - blinkAt.current) / 0.16) * Math.PI); // quick close/open
     }
     inst.setExpression("happy", brk ? 1 : 0); // ^^ happy stretch
-    inst.setExpression("relaxed", brk ? 0 : 0.3); // soft, calm face while studying
+    inst.setExpression("relaxed", brk ? 0 : 0.15); // soft, calm face while studying (lighter, so the eyes don't look half-shut)
     inst.setExpression("blink", brk ? 0 : blink); // blink
   };
 
