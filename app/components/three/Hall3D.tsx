@@ -12,8 +12,8 @@ import Desks from "./Desks"; // desks, chairs, lamps
 import Avatar from "./VrmAvatar"; // seated anime students (VRM), low-poly fallback inside
 import { PLACES, PLACE_BY_SEAT } from "./layout"; // seat positions
 import type { Member } from "@/lib/presence/types"; // who sits where
+import { vrmIdsOf } from "./models"; // MAX_VRM budget, shared with the prefetch
 
-const MAX_VRM = 12; // ~35k triangles each (x2 with toon outlines); keeps the hall well under ~1M triangles
 
 // Props from HallView.
 interface Props {
@@ -50,7 +50,12 @@ function CameraRig({ mySeat, reduced, zoom }: { mySeat: string | null; reduced: 
     const pos = OVERVIEW.look.clone().add(OVERVIEW.pos.clone().sub(OVERVIEW.look).multiplyScalar(zoom)); // dolly toward the hall centre
     return { ...OVERVIEW, pos }; // overview at the chosen zoom
   }, [mySeat, zoom]); // where to go
+  // Once the camera has arrived (and been aimed at least once), skip the
+  // per-frame matrix work; a new target (sit, stand, zoom) wakes it up again.
+  const settled = useRef(false); // true = camera already at rest on the target
+  useEffect(() => { settled.current = false; }, [target]); // new destination: move again
   useFrame((_, dt) => {
+    if (settled.current) return; // at rest: nothing would change this frame
     const cam = camera as THREE.PerspectiveCamera; // perspective camera
     const k = reduced ? 1 : 1 - Math.exp(-dt * 1.1); // slow exponential ease (~3 s), or instant
     cam.position.lerp(target.pos, k); // move
@@ -58,6 +63,7 @@ function CameraRig({ mySeat, reduced, zoom }: { mySeat: string | null; reduced: 
     cam.fov += (target.fov - cam.fov) * k; // widen / narrow
     cam.lookAt(look.current); // aim
     cam.updateProjectionMatrix(); // apply fov
+    if (cam.position.distanceToSquared(target.pos) < 1e-8 && look.current.distanceToSquared(target.look) < 1e-8 && Math.abs(cam.fov - target.fov) < 1e-4) settled.current = true; // arrived (already aimed this frame)
   });
   return null; // no visuals
 }
@@ -70,16 +76,21 @@ interface Label { key: string; world: THREE.Vector3; } // label id + anchor poin
 function Projector({ labels }: { labels: Label[] }) {
   const { camera, size } = useThree(); // camera + canvas size
   const v = useMemo(() => new THREE.Vector3(), []); // scratch vector
+  // Remember what each label was last given, so a still camera causes no DOM
+  // writes (no style recalc/layout every frame); the look is identical.
+  const last = useRef(new Map<string, { el: HTMLElement; css: string; vis: string }>()); // key -> element + last written values
   useFrame(() => {
     for (const l of labels) {
-      const el = document.getElementById(`lbl-${l.key}`); // DOM label
-      if (!el) continue; // not rendered yet
+      let rec = last.current.get(l.key); // cached element
+      if (!rec || !rec.el.isConnected) { const el = document.getElementById(`lbl-${l.key}`); if (!el) continue; rec = { el, css: "", vis: "" }; last.current.set(l.key, rec); } // (re)find it once
       v.copy(l.world).project(camera); // to clip space
       const behind = v.z > 1 || Math.abs(v.x) > 1.2 || Math.abs(v.y) > 1.2; // off-screen or behind camera
-      el.style.visibility = behind ? "hidden" : "visible"; // hide if not in view
+      const vis = behind ? "hidden" : "visible"; // wanted visibility
+      if (vis !== rec.vis) { rec.el.style.visibility = vis; rec.vis = vis; } // write only on change
       const x = ((v.x + 1) / 2) * size.width; // pixel x
       const y = ((1 - v.y) / 2) * size.height; // pixel y
-      el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`; // anchor bottom-centre
+      const css = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`; // anchor bottom-centre
+      if (css !== rec.css) { rec.el.style.transform = css; rec.css = css; } // write only on change
     }
   });
   return null; // no visuals
@@ -89,7 +100,7 @@ function Projector({ labels }: { labels: Label[] }) {
 function Scene({ seatMap, myId, mySeat, reduced, rain, onPick, hot, setHovered, labels, zoom }: Props & { hot: string | null; setHovered: (s: string | null) => void; labels: Label[]; zoom: number }) {
   const occupied = useMemo(() => new Set(seatMap.keys()), [seatMap]); // taken seats
   // GPU budget: only the first MAX_VRM students (stable order) get full anime models; the rest use the light low-poly avatar.
-  const vrmIds = useMemo(() => new Set([...seatMap.values()].map((m) => m.id).sort().slice(0, MAX_VRM)), [seatMap]); // ids with VRM
+  const vrmIds = useMemo(() => vrmIdsOf(seatMap.values()), [seatMap]); // ids with VRM (MAX_VRM = 12, unchanged)
   const firstPerson = !!mySeat; // seated camera
   const gl = useThree((s) => s.gl); // renderer (for cursor)
   useEffect(() => { gl.domElement.style.cursor = hot ? "pointer" : "default"; }, [hot, gl]); // pointer cursor on desks

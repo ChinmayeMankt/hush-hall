@@ -13,13 +13,8 @@ import { useFrame, useThree } from "@react-three/fiber"; // render loop
 import * as THREE from "three"; // math
 import type { Phase } from "@/lib/presence/types"; // pose source
 import LowPolyAvatar from "./Avatar"; // fallback
-import { MODELS, FINGERS, boneOf, loadTemplate, instantiate, type Instance } from "./vrm"; // VRM loading + clones + finger names
-
-// Stable hash for per-student variety (same as the low-poly avatar).
-const hash = (s: string) => [...s].reduce((a, c) => (a * 33 + c.charCodeAt(0)) >>> 0, 5381); // djb2
-
-// Fixed characters for the demo students so names and looks match (index into MODELS).
-const DEMO_LOOKS: Record<string, number> = { Aarav: 2, Meera: 1, Kabir: 4, Isha: 6, Rohan: 2, Tara: 0, Zoya: 3 }; // name -> model
+import { FINGERS, boneOf, loadTemplate, instantiate, type Instance } from "./vrm"; // VRM loading + clones + finger names
+import { hash, modelFor } from "./models"; // shared character picker (also used to prefetch)
 
 // Indian-inclusive skin tints (multiplied over the VRoid skin texture; null = original).
 const SKIN_TINTS = [null, "#f1d2bd", "#dcae8e", "#c08a68", "#a8775a"]; // fair -> brown
@@ -122,7 +117,7 @@ function ik2(root: THREE.Object3D, mid: THREE.Object3D, end: THREE.Object3D, tar
 export default function VrmAvatar(props: Props) {
   const { id, name, simple, color, phase, position, facing, reduced } = props; // inputs
   const k = useMemo(() => hash(id + color), [id, color]); // seed
-  const model = MODELS[name && name in DEMO_LOOKS ? DEMO_LOOKS[name] : k % MODELS.length]; // which character
+  const model = modelFor(id, color, name); // which character (same rule the page prefetches with)
   const [inst, setInst] = useState<Instance | null>(null); // loaded clone
   const [failed, setFailed] = useState(false); // load error -> fallback
   const invalidate = useThree((s) => s.invalidate); // redraw on demand (reduced motion)

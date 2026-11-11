@@ -4,7 +4,8 @@
 // lightweight clones that share geometry, textures and materials.
 //
 // Models: CC0 VRoid sample characters by pixiv Inc. (see docs/ASSETS.md),
-// shrunk offline by scripts/optimize_vrm.py (512px textures, only the morphs we use).
+// shrunk offline by scripts/optimize_vrm.py (only the morphs we use) and
+// scripts/strip_vrm_thumbnail.py (drops the unused preview picture).
 // Rendering: @pixiv/three-vrm (MIT) with MToon toon shading.
 
 import * as THREE from "three"; // core
@@ -13,16 +14,9 @@ import { clone as skeletonClone } from "three/examples/jsm/utils/SkeletonUtils.j
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js"; // batch primitives
 import { VRMLoaderPlugin, VRMUtils, type VRM, type VRMHumanBoneName, VRMExpressionMorphTargetBind } from "@pixiv/three-vrm"; // VRM + MToon
 
-// The character roster. Each file is a CC0 VRoid sample (license read from the VRM meta + pixiv's page).
-export const MODELS = [
-  { file: "sendagaya_shibu.vrm", name: "Sendagaya Shibu" }, // β Ver AvatarSample_1
-  { file: "vivi.vrm", name: "Vivi" }, // β Ver AvatarSample_2
-  { file: "sakurada_fumiriya.vrm", name: "Sakurada Fumiriya" }, // male sample
-  { file: "victoria_rubin.vrm", name: "Victoria Rubin" }, // β sample
-  { file: "hairsample_male.vrm", name: "HairSample_Male" }, // male base sample
-  { file: "vita.vrm", name: "Vita" }, // β sample
-  { file: "sendagaya_shino.vrm", name: "Sendagaya Shino" }, // β-era sample
-] as const;
+// The character roster lives in models.ts (no three.js import), so the page can prefetch files early.
+export { MODELS } from "./models"; // re-exported for existing imports
+import { fetchModel } from "./models"; // shared, de-duplicated downloads
 
 // Finger joints we pose: 5 fingers x 3 joints x 2 hands.
 export const FINGERS = ["Thumb", "Index", "Middle", "Ring", "Little"] as const; // thumb first
@@ -94,7 +88,7 @@ export function loadTemplate(file: string): Promise<Template> {
   const p = (async () => {
     const loader = new GLTFLoader(); // glTF reader
     loader.register((parser) => new VRMLoaderPlugin(parser)); // adds VRM + MToon
-    const gltf = await loader.loadAsync(url); // fetch + parse
+    const gltf = await loader.parseAsync(await fetchModel(file), "/models/"); // parse the shared download (may already be prefetched)
     const vrm = gltf.userData.vrm as VRM; // the VRM wrapper
     VRMUtils.removeUnnecessaryVertices(gltf.scene); // drop unused verts
     VRMUtils.combineSkeletons(gltf.scene); // one skeleton for all meshes

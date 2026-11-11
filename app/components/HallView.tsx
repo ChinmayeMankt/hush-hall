@@ -14,6 +14,7 @@ import { softChime } from "@/lib/chime"; // optional gentle sound
 import { startRain, stopRain } from "@/lib/ambient"; // optional rain ambience
 import { hasWebGL, prefersReducedMotion } from "@/lib/env"; // capability checks
 import dynamic from "next/dynamic"; // lazy-load the 3D bundle
+import { prefetchModels } from "./three/models"; // tiny module: start character downloads before the 3D bundle arrives
 
 // The 3D hall is loaded only in the browser and only when used (keeps the 2D view light).
 const Hall3D = dynamic(() => import("./three/Hall3D"), { ssr: false, loading: () => <div className="hall3d loading">Lighting the lamps…</div> }); // lazy 3D
@@ -210,6 +211,12 @@ export default function HallView({ hallId }: { hallId: string }) {
     if (me?.seat) map.set(me.seat, me); // my own desk always shows me
     return map; // ready for rendering
   }, [demos, others, blocked, me]);
+
+  // In the 3D view, start downloading the characters seated students need right
+  // away, in parallel with the 3D bundle (the avatars reuse these downloads).
+  useEffect(() => {
+    if (view === "3d" && webgl) prefetchModels(seatMap.values()); // each file is fetched once, repeats are free
+  }, [view, webgl, seatMap]);
 
   // If another tab claimed my desk at the same moment, the lower id keeps it.
   useEffect(() => {

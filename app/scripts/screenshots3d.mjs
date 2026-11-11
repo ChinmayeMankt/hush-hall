@@ -5,7 +5,7 @@
 import { chromium } from "playwright-core"; // browser driver
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3123"; // dev server
-const OUT = new URL("../../screenshots/", import.meta.url).pathname; // screenshots folder
+const OUT = process.env.OUT_DIR ?? new URL("../../screenshots/", import.meta.url).pathname; // screenshots folder (OUT_DIR overrides, e.g. for before/after comparisons)
 const CHROME = process.env.CHROME_PATH ?? "/usr/bin/google-chrome"; // system Chrome
 const ONLY = process.env.ONLY ?? ""; // optional: run only the overview shot while iterating
 
