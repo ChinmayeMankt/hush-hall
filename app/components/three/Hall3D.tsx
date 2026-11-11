@@ -1,7 +1,8 @@
 "use client"; // three.js runs in the browser only
 
 // The illustrated 3D reading room. Overview = a slow 3/4 view of the hall;
-// seated = first-person at eye level from your own chair. Presence, requests
+// seated = first-person at eye level from your own chair; walking = third-person
+// behind your own character as you move through the aisles. Presence, requests
 // and the timer stay in HallView; this component only draws and reports clicks.
 
 import { useEffect, useMemo, useRef, useState } from "react"; // React hooks
@@ -13,6 +14,9 @@ import Avatar from "./VrmAvatar"; // seated anime students (VRM), low-poly fallb
 import { PLACES, PLACE_BY_SEAT } from "./layout"; // seat positions
 import type { Member } from "@/lib/presence/types"; // who sits where
 import { vrmIdsOf } from "./models"; // MAX_VRM budget, shared with the prefetch
+import { WalkAvatar, LocalWalker, RemoteWalker, newInput, MOVE_KEYS, type WalkInput } from "./Walking"; // people on foot
+import type { Body } from "./walk"; // shared position object
+import type { WalkState } from "@/lib/presence/types"; // what my walk reports
 
 
 // Props from HallView.
@@ -24,6 +28,11 @@ interface Props {
   rain: boolean; // moving rain on the windows
   onPick: (seat: string) => void; // desk clicked
   hoverSeat?: string | null; // externally forced hover (used for screenshots/tests)
+  me: Member; // my own record (picks my character when I walk)
+  walk: { x: number; z: number; ry: number; n: number; pitch?: number } | null; // walking: where I started (n changes per new walk; pitch = starting camera height angle); null = not walking
+  walkers: Member[]; // other people on foot in this hall (positions come from the walker store)
+  onMove: (w: WalkState) => void; // my position while walking, every frame (the hall throttles the network)
+  stick?: { x: number; y: number }; // on-screen move pad (touch), x right / y forward
 }
 
 // Camera presets.
@@ -40,7 +49,7 @@ function seatView(seat: string) {
 }
 
 // Slowly eases the camera between overview and first-person. Snaps if reduced motion.
-function CameraRig({ mySeat, reduced, zoom }: { mySeat: string | null; reduced: boolean; zoom: number }) {
+function CameraRig({ mySeat, reduced, zoom, walking }: { mySeat: string | null; reduced: boolean; zoom: number; walking: boolean }) { // walking: the follow camera drives instead
   const { camera } = useThree(); // active camera
   const look = useRef(OVERVIEW.look.clone()); // current look-at point
   const target = useMemo(() => {
@@ -55,6 +64,7 @@ function CameraRig({ mySeat, reduced, zoom }: { mySeat: string | null; reduced: 
   const settled = useRef(false); // true = camera already at rest on the target
   useEffect(() => { settled.current = false; }, [target]); // new destination: move again
   useFrame((_, dt) => {
+    if (walking) { settled.current = false; camera.getWorldDirection(look.current).multiplyScalar(4).add(camera.position); return; } // walking: track where the camera looks, so the ease back to a desk or the overview starts from there
     if (settled.current) return; // at rest: nothing would change this frame
     const cam = camera as THREE.PerspectiveCamera; // perspective camera
     const k = reduced ? 1 : 1 - Math.exp(-dt * 1.1); // slow exponential ease (~3 s), or instant
@@ -97,10 +107,11 @@ function Projector({ labels }: { labels: Label[] }) {
 }
 
 // Everything inside the canvas.
-function Scene({ seatMap, myId, mySeat, reduced, rain, onPick, hot, setHovered, labels, zoom }: Props & { hot: string | null; setHovered: (s: string | null) => void; labels: Label[]; zoom: number }) {
+function Scene({ seatMap, myId, mySeat, reduced, rain, onPick, hot, setHovered, labels, zoom, me, walk, walkers, onMove, input, bodies, anchors }: Props & { hot: string | null; setHovered: (s: string | null) => void; labels: Label[]; zoom: number; input: WalkInput; bodies: Map<string, Body>; anchors: Map<string, THREE.Vector3> }) {
   const occupied = useMemo(() => new Set(seatMap.keys()), [seatMap]); // taken seats
   // GPU budget: only the first MAX_VRM students (stable order) get full anime models; the rest use the light low-poly avatar.
-  const vrmIds = useMemo(() => vrmIdsOf(seatMap.values()), [seatMap]); // ids with VRM (MAX_VRM = 12, unchanged)
+  const walking = !!walk && !mySeat; // I'm on foot
+  const vrmIds = useMemo(() => vrmIdsOf([...seatMap.values(), ...walkers, ...(walking ? [me] : [])], walking ? me.id : undefined), [seatMap, walkers, walking, me]); // ids with VRM (MAX_VRM = 12, unchanged; my walking figure first)
   const firstPerson = !!mySeat; // seated camera
   const gl = useThree((s) => s.gl); // renderer (for cursor)
   useEffect(() => { gl.domElement.style.cursor = hot ? "pointer" : "default"; }, [hot, gl]); // pointer cursor on desks
@@ -139,7 +150,7 @@ function Scene({ seatMap, myId, mySeat, reduced, rain, onPick, hot, setHovered, 
       {/* Your own lamp gets one real light when seated, for a cosy pool on your desk */}
       {mySeat && (() => { const p = PLACE_BY_SEAT.get(mySeat)!; return <pointLight position={[p.x - 0.5, 1.15, p.deskZ]} intensity={2.2} distance={3} decay={1.5} color="#ffd08a" />; })()}
 
-      <Room rain={rain} reduced={reduced} closed={firstPerson} />
+      <Room rain={rain} reduced={reduced} closed={firstPerson || walking} />
       <Desks occupied={occupied} mine={mySeat} hovered={hot} firstPerson={firstPerson} onHover={setHovered} onPick={onPick} />
 
       {/* Seated students (hide myself in first-person so the camera isn't inside my head) */}
@@ -149,8 +160,24 @@ function Scene({ seatMap, myId, mySeat, reduced, rain, onPick, hot, setHovered, 
         return <Avatar key={m.id} id={m.id} name={m.name} simple={!vrmIds.has(m.id)} color={m.color} phase={m.phase} position={[p.x, 0, p.chairZ]} facing={p.facing} reduced={reduced} />;
       })}
 
+      {/* Me on foot: keys move my body, the camera follows behind */}
+      {walking && bodies.get(me.id) && (
+        <>
+          <LocalWalker key={walk!.n} body={bodies.get(me.id)!} input={input} onMove={onMove} />
+          <WalkAvatar key={`me-${walk!.n}`} id={me.id} name={me.name} color={me.color} body={bodies.get(me.id)!} reduced={reduced} />
+        </>
+      )}
+
+      {/* Other people on foot (within the same VRM budget as everyone else) */}
+      {walkers.filter((m) => vrmIds.has(m.id) && bodies.get(m.id)).map((m) => (
+        <group key={m.id}>
+          <RemoteWalker id={m.id} body={bodies.get(m.id)!} />
+          <WalkAvatar id={m.id} name={m.name} color={m.color} body={bodies.get(m.id)!} reduced={reduced} anchor={anchors.get(m.id)} />
+        </group>
+      ))}
+
       <Projector labels={labels} />
-      <CameraRig mySeat={mySeat} reduced={reduced} zoom={zoom} />
+      <CameraRig mySeat={mySeat} reduced={reduced} zoom={zoom} walking={walking} />
     </>
   );
 }
@@ -158,37 +185,79 @@ function Scene({ seatMap, myId, mySeat, reduced, rain, onPick, hot, setHovered, 
 // Canvas wrapper with low-GPU settings: capped pixel ratio, no shadows, low-power GPU hint.
 // Topic tags and the hover preview are plain DOM on top of the canvas.
 export default function Hall3D(props: Props) {
-  const { seatMap, myId, mySeat, hoverSeat } = props; // inputs
+  const { seatMap, myId, mySeat, hoverSeat, walk, walkers, me } = props; // inputs
+  const walking = !!walk && !mySeat; // I'm on foot
   const [hovered, setHovered] = useState<string | null>(null); // desk under the pointer
   const hot = hoverSeat ?? hovered; // forced hover wins (for previews)
   const firstPerson = !!mySeat; // seated camera
   const [zoom, setZoom] = useState(1); // overview zoom: 1 = whole hall, 0.45 = close to the desks
   const nudge = (d: number) => setZoom((z) => Math.min(1.1, Math.max(0.45, +(z + d).toFixed(2)))); // clamp zoom steps
 
+  // Walking: one input object and one body per walk (a new walk starts fresh at its spot).
+  const input = useMemo(() => newInput(walk?.ry ?? 0, walk?.pitch), [walk?.n]); // eslint-disable-line react-hooks/exhaustive-deps
+  const myBody = useMemo<Body>(() => ({ x: walk?.x ?? 0, z: walk?.z ?? 0, ry: walk?.ry ?? 0, speed: 0, moved: 0 }), [walk?.n]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (props.stick) input.stick = props.stick; // on-screen pad shares the same input
+  // Bodies and tag anchors for remote walkers, kept per id so they survive re-renders.
+  const store = useRef({ bodies: new Map<string, Body>(), anchors: new Map<string, THREE.Vector3>() }); // per-person objects
+  const bodies = useMemo(() => { // id -> body, updated when people start/stop walking
+    const b = store.current.bodies; // reuse
+    for (const id of [...b.keys()]) if (id !== me.id && !walkers.some((m) => m.id === id)) { b.delete(id); store.current.anchors.delete(id); } // forget people who stopped walking
+    for (const m of walkers) if (!b.has(m.id)) { b.set(m.id, { x: 0, z: 0, ry: 0, speed: 0, moved: 0, hidden: true }); store.current.anchors.set(m.id, new THREE.Vector3(0, -50, 0)); } // new walkers start hidden until positioned
+    b.set(me.id, myBody); // my own body
+    return b; // id -> body
+  }, [walkers, me.id, myBody]);
+
+  // Keyboard while walking: WASD / arrows move, Q/E turn the view. Ignored while typing or when a dialog is open.
+  useEffect(() => {
+    if (!walking) return; // only on foot
+    const busy = (e: KeyboardEvent) => { const t = e.target as HTMLElement | null; return !!t && (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || t.isContentEditable) || !!document.querySelector(".veil"); }; // typing, or a dialog is up
+    const down = (e: KeyboardEvent) => { // key pressed
+      if (!MOVE_KEYS.has(e.code) || e.ctrlKey || e.metaKey || e.altKey || busy(e)) return; // not ours
+      input.keys.add(e.code); // hold
+      if (e.code.startsWith("Arrow")) e.preventDefault(); // arrows walk instead of scrolling the page
+    };
+    const up = (e: KeyboardEvent) => { input.keys.delete(e.code); }; // release (always, so no key ever sticks)
+    const clear = () => input.keys.clear(); // window lost focus: stop walking
+    window.addEventListener("keydown", down); window.addEventListener("keyup", up); window.addEventListener("blur", clear); // listen
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", clear); clear(); }; // cleanup
+  }, [walking, input]);
+
+  // Drag on the scene to look around while walking (mouse or one finger).
+  const drag = useRef<{ x: number; y: number } | null>(null); // last pointer spot during a drag
+  const onDown = (e: React.PointerEvent) => { if (walking) drag.current = { x: e.clientX, y: e.clientY }; }; // start
+  const onDrag = (e: React.PointerEvent) => { // pointer moved over the scene
+    if (!walking || !drag.current || !e.buttons) { drag.current = null; return; } // not dragging
+    const dx = e.clientX - drag.current.x, dy = e.clientY - drag.current.y; // movement
+    drag.current = { x: e.clientX, y: e.clientY }; // next
+    input.yaw -= dx * 0.006; input.pitch = Math.min(0.75, Math.max(0.08, input.pitch + dy * 0.004)); input.lastLook = performance.now(); // orbit, kept between level and high
+  };
+
   // Who gets a tag: everyone seated, except me while I'm in first-person.
   const tagged = useMemo(() => [...seatMap.entries()].filter(([seat, m]) => PLACE_BY_SEAT.has(seat) && !(firstPerson && m.id === myId)), [seatMap, firstPerson, myId]); // [seat, member][]
+  const walkTags = useMemo(() => walkers.filter((m) => bodies.has(m.id)), [walkers, bodies]); // small name-only tags over people on foot
 
   // Anchor points: tags above heads, hover card a little higher.
   const labels = useMemo(() => {
     const out: Label[] = tagged.map(([seat]) => { const p = PLACE_BY_SEAT.get(seat)!; return { key: `tag-${seat}`, world: new THREE.Vector3(p.x, 2.05, p.chairZ) }; }); // tags
+    walkTags.forEach((m) => out.push({ key: `walk-${m.id}`, world: store.current.anchors.get(m.id)! })); // follows the head (moved by the avatar each frame)
     if (hot) { const p = PLACE_BY_SEAT.get(hot)!; out.push({ key: "hover", world: new THREE.Vector3(p.x, seatMap.has(hot) ? 2.75 : 1.5, seatMap.has(hot) ? p.chairZ : p.deskZ) }); } // hover card
     return out; // all labels
-  }, [tagged, hot, seatMap]);
+  }, [tagged, hot, seatMap, walkTags]);
 
   const hm = hot ? seatMap.get(hot) : undefined; // hovered occupant
   return (
-    <div className="hall3d" onWheel={(e) => { if (!firstPerson) nudge(e.deltaY > 0 ? 0.08 : -0.08); }}>
+    <div className={`hall3d ${walking ? "walking" : ""}`} onWheel={(e) => { if (walking) input.dist = Math.min(4.6, Math.max(1.8, input.dist + (e.deltaY > 0 ? 0.25 : -0.25))); else if (!firstPerson) nudge(e.deltaY > 0 ? 0.08 : -0.08); }} onPointerDown={onDown} onPointerMove={onDrag} onPointerUp={() => { drag.current = null; }}>
       <Canvas
         dpr={[1, 1.5]} // cap resolution so phones stay cool
         gl={{ antialias: true, powerPreference: "low-power" }} // prefer battery over peak speed
         camera={{ position: OVERVIEW.pos.toArray(), fov: OVERVIEW.fov, near: 0.05, far: 80 }} // start in overview
-        frameloop={props.reduced ? "demand" : "always"} // nothing animates under reduced motion, so render on demand
+        frameloop={props.reduced && !walking && walkers.length === 0 ? "demand" : "always"} // nothing animates under reduced motion, so render on demand (walking always needs frames)
       >
-        <Scene {...props} hot={hot} setHovered={setHovered} labels={labels} zoom={zoom} />
+        <Scene {...props} hot={hot} setHovered={setHovered} labels={labels} zoom={zoom} input={input} bodies={bodies} anchors={store.current.anchors} />
       </Canvas>
 
       {/* Gentle zoom buttons (touch-friendly; mouse wheel also works) */}
-      {!firstPerson && (
+      {!firstPerson && !walking && (
         <div className="zoom3d">
           <button className="ghost small" aria-label="Zoom in" onClick={() => nudge(-0.15)}>+</button>
           <button className="ghost small" aria-label="Zoom out" onClick={() => nudge(0.15)}>−</button>
@@ -203,6 +272,11 @@ export default function Hall3D(props: Props) {
               <div className="tag3d-who">{m.avatar} {m.name}</div>
               <div className="tag3d-topic">{m.topic}</div>
             </div>
+          </div>
+        ))}
+        {walkTags.map((m) => (
+          <div key={m.id} id={`lbl-walk-${m.id}`} className="lbl">
+            <div className="tag3d walk-tag"><div className="tag3d-who">{m.avatar} {m.name}</div></div>
           </div>
         ))}
         {hot && !(firstPerson && hot === mySeat) && (

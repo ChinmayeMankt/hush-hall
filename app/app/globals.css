@@ -181,3 +181,27 @@ button.small { padding: 4px 10px; font-size: 0.85rem; } /* compact buttons */
 .prose li { margin: 4px 0; } /* readable lists */
 a.btn { display: inline-block; text-decoration: none; color: #fffaf0; } /* link styled as a button */
 a.btn.sage { background: var(--sage); border: 1px solid #5f7b5b; } /* main call to action */
+
+/* ---- Bigger 3D hall, full screen, and walking (same paper-and-wood look) ---- */
+main:has(.hall3d-wrap) { max-width: none; padding: 10px 14px 14px; } /* the 3D hall uses the whole window width; the 2D view keeps its centred column */
+.hall-root { position: relative; } /* anchor for overlays in full screen */
+.hall-root:has(.hall3d-wrap) .hall-head { margin-bottom: 8px; } /* a little less space above the scene */
+.hall-root:has(.hall3d-wrap) .hall-head h1 { font-size: 1.5rem; margin-bottom: 0; } /* compact title next to the scene */
+.hall3d-wrap .hall3d { height: calc(100vh - 150px); height: calc(100dvh - 150px); min-height: 420px; } /* the library fills the window under the header */
+.hall-root.is-fs { background: #2a1b12; overflow: auto; } /* full screen: dark wood behind everything */
+.hall-root.is-fs .hall-head { display: none; } /* full screen: only the scene and its quiet overlays */
+.hall-root.is-fs .hall3d { height: 100vh; height: 100dvh; min-height: 0; border: 0; border-radius: 0; } /* edge to edge */
+.hall-root.is-fs .room-banner { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 30; width: min(440px, 90vw); max-height: 60vh; overflow: auto; margin: 0; box-shadow: 0 6px 20px rgba(0,0,0,0.3); } /* study room stays reachable as a floating paper card */
+.frame-ctl { position: absolute; top: 12px; left: 12px; z-index: 21; display: flex; gap: 6px; flex-wrap: wrap; } /* walk + full screen, top-left of the scene */
+.frame-ctl button, .hall3d-wrap .move-pad { backdrop-filter: blur(2px); } /* paper over the scene */
+.frame-ctl button { background: rgba(247, 237, 214, 0.9); color: var(--wood-dark); border-color: #c9b48a; } /* calm paper pills */
+.frame-ctl button:hover { background: #fffdf3; } /* gentle hover */
+.hint3d { position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 20; background: rgba(247, 237, 214, 0.86); color: #3b2f25; border: 1px solid #c9b48a; border-radius: 14px; padding: 4px 12px; font-size: 12px; text-align: center; max-width: min(640px, 80%); pointer-events: none; transition: opacity 1.2s ease; } /* one quiet help line */
+.hint3d.faded { opacity: 0; } /* walking help fades away */
+.hall3d.walking { touch-action: none; cursor: grab; } /* drag to look (no page scroll while walking) */
+.walk-tag { animation: none; padding: 2px 7px; opacity: 0.85; } /* name only over people on foot, still */
+.walk-tag::after { display: none; } /* no thread down to a desk */
+.move-pad { display: none; position: absolute; left: 16px; bottom: 16px; width: 104px; height: 104px; border-radius: 50%; background: rgba(247, 237, 214, 0.28); border: 1px solid rgba(247, 237, 214, 0.75); z-index: 21; touch-action: none; } /* touch move pad */
+.move-pad .knob { position: absolute; left: 32px; top: 32px; width: 40px; height: 40px; border-radius: 50%; background: rgba(247, 237, 214, 0.9); border: 1px solid #c9b48a; pointer-events: none; } /* the thumb */
+.touch-only { display: none; } /* touch-screen wording hidden on desktop */
+@media (pointer: coarse) { .move-pad { display: block; } .hint3d { bottom: 130px; } .kb-only { display: none; } .touch-only { display: inline; } } /* touch screens: show the pad, lift the help line above it */

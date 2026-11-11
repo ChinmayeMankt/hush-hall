@@ -15,4 +15,5 @@ export function getPresence(): PresenceProvider {
   return instance; // same object for every component
 }
 
-export type { Member, JoinRequest, JoinResponse, Phase, SendResult } from "./types"; // re-export types
+export type { Member, JoinRequest, JoinResponse, Phase, SendResult, WalkState } from "./types"; // re-export types
+export { walkers } from "./walkers"; // live positions of people walking (read every frame by the 3D hall)

@@ -17,7 +17,17 @@ export interface Member {
   phaseEndsAt: number | null; // epoch ms when the current phase ends, if a timer runs
   hideFromRequests: boolean; // true = nobody can send this person a join request
   isDemo?: boolean; // true for the locally simulated students in the prototype
+  walking?: boolean; // true while this person walks around the hall on foot (no desk); live position comes from the walker store
   lastSeen: number; // epoch ms of last heartbeat, used to drop stale tabs
+}
+
+// Where a person on foot is right now: floor position, facing and pose.
+// Sent often while moving, so it travels apart from Member (no React re-render per update).
+export interface WalkState {
+  x: number; // floor position x in metres (hall coordinates)
+  z: number; // floor position z in metres
+  ry: number; // facing angle around the vertical axis (0 = looking toward +z)
+  pose: "walking" | "idle"; // moving on foot, or standing still in the aisle (seated people have a desk instead)
 }
 
 // A quiet "may I join your study room?" note from one desk to another.
@@ -60,4 +70,5 @@ export interface PresenceProvider {
   onRequest(cb: (req: JoinRequest) => void): Unsubscribe; // requests addressed to me
   onResponse(cb: (res: JoinResponse) => void): Unsubscribe; // answers to my requests
   block(memberId: string): Promise<void>; // block someone: hide them, drop their requests, leave shared rooms
+  walk(state: WalkState | null): void; // announce my position on foot (null = not walking any more)
 }

@@ -197,7 +197,7 @@ export default function Desks({ occupied, mine, hovered, firstPerson, onHover, o
         const handlers = {
           onPointerOver: (e: ThreeEvent<PointerEvent>) => { e.stopPropagation(); onHover(p.seat); }, // hover in
           onPointerOut: () => onHover(null), // hover out
-          onClick: (e: ThreeEvent<MouseEvent>) => { e.stopPropagation(); onPick(p.seat); }, // pick
+          onClick: (e: ThreeEvent<MouseEvent>) => { e.stopPropagation(); if (e.delta > 6) return; onPick(p.seat); }, // pick (a drag to look around is not a click)
         };
         return [
           <mesh key={`${p.seat}-desk`} position={[p.x, 0.48, p.deskZ]} visible={false} {...handlers}>

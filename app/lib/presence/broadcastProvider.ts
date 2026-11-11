@@ -10,7 +10,9 @@ import type {
   PresenceProvider,
   SendResult,
   Unsubscribe,
+  WalkState,
 } from "./types"; // shared contract
+import { setWalker, cleanWalk } from "./walkers"; // live positions of people on foot
 
 // Messages that travel over the channel between tabs.
 type Wire =
@@ -18,7 +20,8 @@ type Wire =
   | { kind: "state"; member: Member } // heartbeat / state change
   | { kind: "leave"; id: string } // "I left the hall"
   | { kind: "request"; req: JoinRequest } // join request to someone
-  | { kind: "response"; res: JoinResponse }; // answer to a join request
+  | { kind: "response"; res: JoinResponse } // answer to a join request
+  | { kind: "walk"; id: string; w: WalkState | null }; // position on foot (null = stopped walking)
 
 // How often each tab re-announces itself, and when a silent tab counts as gone.
 const HEARTBEAT_MS = 3000; // 3 s heartbeat keeps desks fresh
@@ -43,6 +46,7 @@ export class BroadcastPresence implements PresenceProvider {
   private responseCbs = new Set<(r: JoinResponse) => void>(); // incoming answer listeners
   private timer: ReturnType<typeof setInterval> | null = null; // heartbeat interval
   private sent: { toId: string; at: number }[] = []; // recent requests, for rate limiting
+  private lastWalk: WalkState | null = null; // my latest position on foot, re-sent to newcomers
 
   // Enter a hall: open its channel, say hello, start heartbeating.
   join(hallId: string, me: Member) {
@@ -61,13 +65,21 @@ export class BroadcastPresence implements PresenceProvider {
     this.post({ kind: "state", member: this.me }); // broadcast it
   }
 
+  // Announce my position on foot to the other tabs (null = sat down or stopped walking).
+  walk(state: WalkState | null) {
+    this.lastWalk = state; // remember for newcomers and heartbeats
+    if (this.me) this.post({ kind: "walk", id: this.me.id, w: state }); // send to everyone in the hall
+  }
+
   // Leave the hall cleanly.
   leave() {
+    this.lastWalk = null; // not walking anywhere once we leave
     if (this.me && this.channel) this.post({ kind: "leave", id: this.me.id }); // tell others
     if (this.timer) clearInterval(this.timer); // stop heartbeat
     this.timer = null; // forget the interval
     this.channel?.close(); // close the channel
     this.channel = null; // forget it
+    this.others.forEach((_, id) => setWalker(id, null)); // forget everyone's walking position
     this.others.clear(); // nobody is visible once we leave
     this.emitMembers(); // let the UI clear the desks
   }
@@ -131,6 +143,7 @@ export class BroadcastPresence implements PresenceProvider {
   // Block someone for this tab: hide their desk details and ignore their requests.
   async block(memberId: string) {
     this.blocked.add(memberId); // remember the block
+    setWalker(memberId, null); // hide them on foot too
     this.emitMembers(); // refresh the UI without them
   }
 
@@ -142,9 +155,14 @@ export class BroadcastPresence implements PresenceProvider {
     if (msg.kind === "hello" || msg.kind === "state") {
       if (msg.member.id === this.me.id) return; // ignore our own echo
       this.others.set(msg.member.id, { ...msg.member, lastSeen: Date.now() }); // upsert member
-      if (msg.kind === "hello") this.post({ kind: "state", member: this.me }); // reply so newcomer sees us
+      if (msg.kind === "hello") { this.post({ kind: "state", member: this.me }); if (this.lastWalk) this.post({ kind: "walk", id: this.me.id, w: this.lastWalk }); } // reply so newcomer sees us (and where we stand, if on foot)
+      if (!msg.member.walking) setWalker(msg.member.id, null); // they sat down or stopped walking: drop their old position
       this.emitMembers(); // update desks
+    } else if (msg.kind === "walk") {
+      if (msg.id === this.me.id || this.blocked.has(msg.id)) return; // ignore our own echo and blocked people
+      setWalker(msg.id, cleanWalk(msg.w)); // store the checked position (no re-render needed)
     } else if (msg.kind === "leave") {
+      setWalker(msg.id, null); // they left: no walking figure either
       this.others.delete(msg.id); // drop them
       this.emitMembers(); // update desks
     } else if (msg.kind === "request") {
@@ -161,11 +179,13 @@ export class BroadcastPresence implements PresenceProvider {
   private tick() {
     if (!this.me) return; // nothing to do outside a hall
     this.update(this.me); // re-send our state with a fresh timestamp
+    if (this.lastWalk) this.post({ kind: "walk", id: this.me.id, w: this.lastWalk }); // and where we stand, in case a message was missed
     const now = Date.now(); // current time
     let changed = false; // track whether anyone was pruned
     this.others.forEach((m, id) => {
       if (now - m.lastSeen > STALE_MS) {
         this.others.delete(id); // tab closed or crashed
+        setWalker(id, null); // and stop drawing them on foot
         changed = true; // remember to refresh
       }
     });

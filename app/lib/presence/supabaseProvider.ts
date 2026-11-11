@@ -10,10 +10,11 @@
 
 import type { RealtimeChannel } from "@supabase/supabase-js"; // channel type
 import { supabase, reasonOf } from "../backend/client"; // shared client
-import type { JoinRequest, JoinResponse, Member, Phase, PresenceProvider, SendResult, Unsubscribe } from "./types"; // contract
+import type { JoinRequest, JoinResponse, Member, Phase, PresenceProvider, SendResult, Unsubscribe, WalkState } from "./types"; // contract
+import { setWalker, cleanWalk } from "./walkers"; // live positions of people on foot
 
 // What each tab announces on the presence channel (small and non-authoritative).
-type Beacon = { phase: Phase; phaseEndsAt: number | null }; // timer state only
+type Beacon = { phase: Phase; phaseEndsAt: number | null; seated?: boolean; walk?: WalkState | null }; // timer state, whether I hold a desk (so sitting/standing re-reads desks), plus where I stand while walking (position, facing, pose)
 // Public profile fields from public_profiles().
 type Pub = { id: string; nickname: string; avatar: string; color: string; takes_requests: boolean; show_topic: boolean }; // safe fields
 // A desk row from hall_desks().
@@ -35,6 +36,8 @@ export class SupabasePresence implements PresenceProvider {
   private timer: ReturnType<typeof setInterval> | null = null; // periodic refresh
   private pending: ReturnType<typeof setTimeout> | null = null; // debounced refresh
   private seenRequests = new Set<string>(); // request ids already delivered (initial load + realtime can overlap)
+  private myWalk: WalkState | null = null; // my position on foot, announced with my beacon
+  private lastSig = ""; // who is here + their phase + walking flag at the last database read (walk steps alone skip the read)
 
   // Enter a hall: join its presence channel and my private inbox.
   join(hallId: string, me: Member) {
@@ -44,7 +47,7 @@ export class SupabasePresence implements PresenceProvider {
     const sb = supabase(); // client
     sb.from("blocks").select("blocked_id").then(({ data }) => { (data ?? []).forEach((r: { blocked_id: string }) => this.blocked.add(r.blocked_id)); this.schedule(); }); // my block list
     this.chan = sb.channel(`hall:${hallId}`, { config: { private: true, presence: { key: me.id } } }); // one key per account (several tabs merge)
-    this.chan.on("presence", { event: "sync" }, () => this.schedule()); // someone came, left or changed
+    this.chan.on("presence", { event: "sync" }, () => this.synced()); // someone came, left, changed, or took a step
     this.chan.subscribe((status) => { if (status === "SUBSCRIBED") this.track(); }); // announce once connected
     this.inbox = sb.channel(`inbox:${me.id}`) // Postgres Changes for rows that involve me (RLS filters them)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "join_requests", filter: `to_id=eq.${me.id}` }, (e) => this.gotRequest(e.new as ReqRow)) // a note for me
@@ -57,13 +60,21 @@ export class SupabasePresence implements PresenceProvider {
 
   // Push my timer state (desk + topic are already in the database).
   update(me: Member) {
-    const changed = !this.me || this.me.phase !== me.phase || this.me.phaseEndsAt !== me.phaseEndsAt || this.me.seat !== me.seat; // anything others see?
+    const changed = !this.me || this.me.phase !== me.phase || this.me.phaseEndsAt !== me.phaseEndsAt || this.me.seat !== me.seat || !!this.me.walking !== !!me.walking; // anything others see? (walking on/off included)
     this.me = me; // keep latest
     if (changed) { this.track(); this.schedule(); } // re-announce and re-read desks (my own seat change)
   }
 
+  // Announce my position on foot (the hall calls this a few times a second at most while I move).
+  walk(state: WalkState | null) {
+    this.myWalk = state; // keep the latest
+    this.track(); // re-announce on the same presence channel
+  }
+
   // Leave the hall and stop listening.
   leave() {
+    this.myWalk = null; this.lastSig = ""; // nothing to announce after leaving
+    this.members.forEach((m) => setWalker(m.id, null)); // forget everyone's walking position
     const sb = this.chan || this.inbox ? supabase() : null; // only if joined
     if (this.chan) { this.chan.untrack().catch(() => {}); sb!.removeChannel(this.chan); } // gone from presence
     if (this.inbox) sb!.removeChannel(this.inbox); // stop notes
@@ -108,6 +119,7 @@ export class SupabasePresence implements PresenceProvider {
   // Block someone (server also cancels requests and separates shared rooms).
   async block(memberId: string) {
     this.blocked.add(memberId); // hide right away
+    setWalker(memberId, null); // hide them on foot too
     this.members = this.members.filter((m) => m.id !== memberId); this.emit(); // refresh desks
     await supabase().rpc("block_user", { p_user: memberId }); // persist + clean up
   }
@@ -117,8 +129,25 @@ export class SupabasePresence implements PresenceProvider {
   // Announce my timer phase on the presence channel.
   private track() {
     if (!this.chan || !this.me) return; // not ready
-    const b: Beacon = { phase: this.me.phase, phaseEndsAt: this.me.phaseEndsAt }; // small payload
+    const b: Beacon = { phase: this.me.phase, phaseEndsAt: this.me.phaseEndsAt, seated: !!this.me.seat, walk: this.me.seat ? null : this.myWalk }; // small payload (never a walking position while seated)
     this.chan.track(b).catch(() => {}); // best effort (reconnects re-track)
+  }
+
+  // A presence sync arrived: copy walking positions straight into the walker
+  // store, and only re-read the database when something besides a step changed.
+  private synced() {
+    if (!this.chan || !this.me) return; // left meanwhile
+    const state = this.chan.presenceState<Beacon>(); // key -> list of tab beacons
+    const parts: string[] = []; // signature pieces
+    for (const id of Object.keys(state).sort()) {
+      if (id === this.me.id) continue; // my own beacon
+      const b = state[id][state[id].length - 1]; // latest tab wins (same rule as refresh)
+      const w = this.blocked.has(id) ? null : cleanWalk(b?.walk); // checked position, none for blocked people
+      setWalker(id, w); // update (or clear) their figure on foot
+      parts.push(`${id}:${b?.phase}:${b?.phaseEndsAt}:${b?.seated ? 1 : 0}:${w ? 1 : 0}`); // what the desks and labels depend on (sit/stand, timer, walk on/off)
+    }
+    const sig = parts.join("|"); // compact signature
+    if (sig !== this.lastSig) { this.lastSig = sig; this.schedule(); } // arrivals, departures, timers, walk on/off: re-read desks
   }
 
   // Coalesce bursts of presence events into one database read.
@@ -152,6 +181,7 @@ export class SupabasePresence implements PresenceProvider {
         seat: desk?.seat ?? null, topic: pub.show_topic ? desk?.topic ?? "" : "", // where + what (from the database)
         phase: (desk ? b?.phase ?? "idle" : "idle") as Phase, phaseEndsAt: desk ? b?.phaseEndsAt ?? null : null, // timer (from presence)
         hideFromRequests: !pub.takes_requests, lastSeen: now, // privacy + freshness
+        walking: !desk && !!cleanWalk(b?.walk), // on foot only when they hold no desk
       } satisfies Member];
     });
     this.emit(); // tell the hall

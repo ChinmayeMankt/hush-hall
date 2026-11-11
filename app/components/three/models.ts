@@ -29,8 +29,11 @@ export function modelFor(id: string, color: string, name?: string) {
 }
 
 // Which members get a full VRM model: the first MAX_VRM by id (stable order).
-export function vrmIdsOf(members: Iterable<{ id: string }>) {
-  return new Set([...members].map((m) => m.id).sort().slice(0, MAX_VRM)); // ids with VRM
+// `first` (optional) is always included: my own walking figure must never vanish.
+export function vrmIdsOf(members: Iterable<{ id: string }>, first?: string) {
+  const ids = [...new Set([...members].map((m) => m.id))].sort(); // unique ids, stable order
+  if (first && ids.includes(first)) ids.sort((a, b) => (a === first ? -1 : b === first ? 1 : 0)); // move mine to the front (others keep their order)
+  return new Set(ids.slice(0, MAX_VRM)); // ids with VRM (cap unchanged)
 }
 
 // One download per file, shared by the prefetch below and the VRM parser.

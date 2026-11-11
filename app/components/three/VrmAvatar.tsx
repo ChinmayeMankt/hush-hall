@@ -17,9 +17,9 @@ import { FINGERS, boneOf, loadTemplate, instantiate, type Instance } from "./vrm
 import { hash, modelFor } from "./models"; // shared character picker (also used to prefetch)
 
 // Indian-inclusive skin tints (multiplied over the VRoid skin texture; null = original).
-const SKIN_TINTS = [null, "#f1d2bd", "#dcae8e", "#c08a68", "#a8775a"]; // fair -> brown
+export const SKIN_TINTS = [null, "#f1d2bd", "#dcae8e", "#c08a68", "#a8775a"]; // fair -> brown
 // Natural hair tints (null = model's own colour).
-const HAIR_TINTS = [null, null, "#3a2a22", "#2a1e18", "#5a4030"]; // keep some originals, darken others
+export const HAIR_TINTS = [null, null, "#3a2a22", "#2a1e18", "#5a4030"]; // keep some originals, darken others
 
 const TOP_Y = 0.76; // desk top height (matches Desks.tsx)
 const SEAT_Y = 0.52; // chair seat top
@@ -42,7 +42,7 @@ const Q = { p: new THREE.Quaternion(), q: new THREE.Quaternion() }; // quaternio
 const T = { t: new THREE.Vector3(), p: new THREE.Vector3(), s: new THREE.Vector3() }; // pose targets (separate from the IK scratch)
 
 // Point a bone so its child lies along world direction `dir`.
-function aim(bone: THREE.Object3D, child: THREE.Object3D, dir: THREE.Vector3) {
+export function aim(bone: THREE.Object3D, child: THREE.Object3D, dir: THREE.Vector3) { // exported: the walking figure reuses it
   bone.parent!.getWorldQuaternion(Q.p); // parent orientation
   const local = V.e.copy(dir).applyQuaternion(Q.p.invert()).normalize(); // dir in parent space
   const rest = V.d.copy(child.position).normalize(); // rest direction (rest rotations are identity)
@@ -55,7 +55,7 @@ function aim(bone: THREE.Object3D, child: THREE.Object3D, dir: THREE.Vector3) {
 // (e.g. palm normal) goes as close to `n` as possible. Unlike aim(), this also
 // fixes the roll, so a palm can be told to face down instead of sideways.
 const W = { f: new THREE.Vector3(), n: new THREE.Vector3(), x: new THREE.Vector3(), rf: new THREE.Vector3(), rn: new THREE.Vector3(), rx: new THREE.Vector3(), mw: new THREE.Matrix4(), mr: new THREE.Matrix4(), q: new THREE.Quaternion() }; // own scratch (aim/ik2 use V)
-function orient(bone: THREE.Object3D, restF: THREE.Vector3, restN: THREE.Vector3, f: THREE.Vector3, n: THREE.Vector3) {
+export function orient(bone: THREE.Object3D, restF: THREE.Vector3, restN: THREE.Vector3, f: THREE.Vector3, n: THREE.Vector3) { // exported: hands hang naturally while walking
   bone.parent!.getWorldQuaternion(W.q).invert(); // world -> parent space
   const lf = W.f.copy(f).applyQuaternion(W.q).normalize(); // wanted forward, in parent space
   const ln = W.n.copy(n).applyQuaternion(W.q); // wanted normal, in parent space
@@ -71,11 +71,11 @@ function orient(bone: THREE.Object3D, restF: THREE.Vector3, restN: THREE.Vector3
 // Relaxed finger curl per joint (radians), knuckle -> tip. A resting human hand
 // is never flat: fingers bend gently, the little finger a bit more than the index.
 const CURL = { Thumb: [0.15, 0.2, 0.15], Index: [0.3, 0.35, 0.2], Middle: [0.35, 0.4, 0.25], Ring: [0.4, 0.45, 0.25], Little: [0.45, 0.5, 0.3] } as const; // per finger, per joint
-const PALM_DOWN = new THREE.Vector3(0, -1, 0); // VRoid T-pose: palms face the floor at rest
+export const PALM_DOWN = new THREE.Vector3(0, -1, 0); // VRoid T-pose: palms face the floor at rest
 const AX = new THREE.Vector3(); // scratch curl axis
 
 // Bend every finger of one hand toward the palm by `amount` x CURL.
-function curlFingers(B: Instance["bones"], L: "left" | "right", amount: number) {
+export function curlFingers(B: Instance["bones"], L: "left" | "right", amount: number) { // exported: relaxed hands while walking too
   for (const f of FINGERS) {
     for (let j = 0; j < 3; j++) {
       const bone = B[boneOf(L, f, j)]; // this joint
@@ -98,7 +98,7 @@ const TQ = new THREE.Quaternion(), TQ2 = new THREE.Quaternion(); // thumb scratc
 const TV = { a: new THREE.Vector3(), b: new THREE.Vector3() }; // thumb scratch vectors
 
 // Two-bone IK: root -> mid -> end reaching `target`, elbow/knee bending toward `pole`.
-function ik2(root: THREE.Object3D, mid: THREE.Object3D, end: THREE.Object3D, target: THREE.Vector3, pole: THREE.Vector3) {
+export function ik2(root: THREE.Object3D, mid: THREE.Object3D, end: THREE.Object3D, target: THREE.Vector3, pole: THREE.Vector3) { // exported: legs and arms of the walking figure
   root.updateWorldMatrix(true, false); // fresh parents
   const s = root.getWorldPosition(V.a); // shoulder / hip
   const a = mid.position.length() * root.getWorldScale(V.b).x; // upper length

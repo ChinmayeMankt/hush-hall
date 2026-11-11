@@ -1,14 +1,16 @@
 "use client"; // the hall is fully interactive and uses browser APIs
 
 // The hall: rows of numbered desks, the sit -> topic -> timer -> recap ritual,
-// quiet join requests, block/report, hide-from-requests, and hall hopping.
+// quiet join requests, block/report, hide-from-requests, hall hopping, an
+// optional walk around the 3D hall on foot, and a full-screen hall.
 // Presence goes through getPresence(), so the backend can change later.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"; // React hooks
 import Desk from "./Desk"; // one desk tile
 import { BreakCard, DeskCard, RecapDialog, SitDialog } from "./Dialogs"; // paper dialogs
 import { HALLS, ROWS, DESKS_PER_ROW, demoMembers, hallById } from "@/lib/halls"; // hall data
-import { getPresence, type JoinRequest, type Member, type Phase } from "@/lib/presence"; // presence layer
+import { getPresence, type JoinRequest, type Member, type Phase, type WalkState } from "@/lib/presence"; // presence layer
+import { ENTRANCE, standSpot } from "./three/walk"; // where a walk starts (tiny module: no three.js)
 import type { Profile } from "@/lib/profile"; // profile shape
 import { loadAccount, saveProfile, sitDown, heartbeat, standUp as saveStandUp, releaseOnUnload, usualSeat, setUsualSeat, fileReport, type ReportReason } from "@/lib/account"; // account: Supabase or demo storage
 import { hasSupabase, accessToken } from "@/lib/backend/client"; // real backend?
@@ -70,6 +72,15 @@ export default function HallView({ hallId }: { hallId: string }) {
   const [reduced, setReduced] = useState(false); // prefers-reduced-motion
   const [rain, setRain] = useState(false); // rain ambience (off by default)
   const [forceHover, setForceHover] = useState<string | null>(null); // ?hover=B1 for previews
+
+  // ---- walking + full screen ----
+  const [walk, setWalk] = useState<{ x: number; z: number; ry: number; n: number; pitch?: number } | null>(null); // on foot: where this walk started (n = which walk); null = not walking
+  const [recapThen, setRecapThen] = useState<"walk" | null>(null); // after the recap: just stand, or stand and walk
+  const [fs, setFs] = useState(false); // the hall is in browser full screen
+  const [helpOn, setHelpOn] = useState(true); // short walking help, fades after a little while
+  const rootRef = useRef<HTMLDivElement>(null); // what goes full screen (scene + overlays + dialogs together)
+  const stick = useRef({ x: 0, y: 0 }).current; // on-screen move pad (touch), shared with the 3D hall
+  const sentWalk = useRef<{ w: WalkState; at: number } | null>(null); // last position sent to the hall
 
   const phaseRef = useRef(phase); // latest phase for presence callbacks
   phaseRef.current = phase; // keep it current every render
@@ -135,9 +146,10 @@ export default function HallView({ hallId }: { hallId: string }) {
       phase, // timer phase
       phaseEndsAt, // countdown end
       hideFromRequests: profile.hideFromRequests, // privacy toggle
+      walking: !!walk && !seat, // on foot in the aisles (never while holding a desk)
       lastSeen: Date.now(), // refreshed by the provider
     };
-  }, [profile, seat, topic, phase, phaseEndsAt]);
+  }, [profile, seat, topic, phase, phaseEndsAt, walk]); // walk included so others learn when I start/stop walking
 
   // Join the hall once my profile is ready; leave on unmount or tab close.
   const joined = useRef(false); // guard against double join
@@ -172,6 +184,48 @@ export default function HallView({ hallId }: { hallId: string }) {
   useEffect(() => {
     if (me && joined.current) presence.update(me); // broadcast
   }, [me, presence]);
+
+  // Walking position for the hall: a few times a second while moving, once when I stop,
+  // and an occasional refresh while standing still (keeps presence light and calm).
+  const onMove = useCallback((w: WalkState) => { // called every frame by the 3D hall while I walk
+    const now = performance.now(), last = sentWalk.current; // timing
+    const posed = !last || last.w.pose !== w.pose; // started or stopped moving
+    const shifted = !!last && (Math.hypot(w.x - last.w.x, w.z - last.w.z) > 0.05 || Math.abs(w.ry - last.w.ry) > 0.12); // moved or turned noticeably
+    const due = !!last && now - last.at > (w.pose === "walking" ? 400 : 1500); // setting: about 2.5 updates a second while walking
+    if (posed || (due && shifted)) { presence.walk(w); sentWalk.current = { w: { ...w }, at: now }; } // announce
+  }, [presence]);
+
+  // Not walking any more (sat down, stopped, or left): clear my position for everyone.
+  useEffect(() => {
+    if (!walk || seat) { presence.walk(null); sentWalk.current = null; } // nothing to show on foot
+  }, [walk, seat, presence]);
+
+  // Walking help fades on its own after a short while (no lingering text over the scene).
+  useEffect(() => {
+    if (!walk) return; // only while walking
+    setHelpOn(true); // show at the start of each walk
+    rootRef.current?.querySelector(".hall3d-wrap")?.scrollIntoView({ block: "nearest", behavior: "smooth" }); // small screens: bring the whole scene (and the move pad) into view
+    const t = window.setTimeout(() => setHelpOn(false), 9000); // setting: 9 s
+    return () => clearTimeout(t); // cleanup
+  }, [walk]);
+
+  // Full screen: follow the browser's state (Esc exits on its own) and offer the F key as a shortcut.
+  const toggleFs = useCallback(() => { // button and F key share this
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); // leave full screen
+    else rootRef.current?.requestFullscreen?.().catch(() => say("Full screen isn’t available in this browser.")); // enter (scene, notes and dialogs together)
+  }, [say]);
+  useEffect(() => {
+    const onFs = () => setFs(document.fullscreenElement === rootRef.current); // entered or left (incl. Esc)
+    const onKey = (e: KeyboardEvent) => { // F = full screen on/off
+      const t = e.target as HTMLElement | null; // focused element
+      if (e.code !== "KeyF" || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return; // only a plain F
+      if (t && (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || t.isContentEditable)) return; // typing
+      if (document.querySelector(".veil") || !document.querySelector(".hall3d-wrap")) return; // a dialog is up, or the 3D hall isn't shown
+      e.preventDefault(); toggleFs(); // toggle
+    };
+    document.addEventListener("fullscreenchange", onFs); window.addEventListener("keydown", onKey); // listen
+    return () => { document.removeEventListener("fullscreenchange", onFs); window.removeEventListener("keydown", onKey); }; // cleanup
+  }, [toggleFs]);
 
   // Real mode: keep my desk alive every minute and bank focus time, so a
   // closed laptop still counts the minutes and the desk frees itself later.
@@ -247,11 +301,14 @@ export default function HallView({ hallId }: { hallId: string }) {
     return map; // ready for rendering
   }, [demos, others, blocked, me]);
 
+  // Other people walking in the aisles (no desk), minus anyone I blocked.
+  const walkersList = useMemo(() => others.filter((m) => m.walking && !m.seat && !blocked.has(m.id)), [others, blocked]); // on foot
+
   // In the 3D view, start downloading the characters seated students need right
   // away, in parallel with the 3D bundle (the avatars reuse these downloads).
   useEffect(() => {
-    if (view === "3d" && webgl) prefetchModels(seatMap.values()); // each file is fetched once, repeats are free
-  }, [view, webgl, seatMap]);
+    if (view === "3d" && webgl) prefetchModels([...seatMap.values(), ...walkersList, ...(walk && me ? [me] : [])]); // each file is fetched once, repeats are free (walkers and my own walking figure too)
+  }, [view, webgl, seatMap, walkersList, walk, me]); // re-check when someone starts walking
 
   // If another tab claimed my desk at the same moment, the lower id keeps it.
   useEffect(() => {
@@ -295,18 +352,23 @@ export default function HallView({ hallId }: { hallId: string }) {
     patchProfile({ focusMin: f, breakMin: b }); // remember rhythm
     if (remember) { setUsualSeat(hallId, at, profile.id); setUsual(at); } // returning seat
     setSitAt(null); // close dialog
+    setWalk(null); // sitting ends a walk (the camera eases into the seat view)
     startPhase("focus", f); // start focusing right away
   };
 
   // Ritual step 4: stand up with a short recap.
   const standUp = async (note: string) => {
     if (!seat) return; // not seated
+    const thenWalk = recapThen === "walk" && view === "3d" && webgl; // stand and walk on, or just stand
+    const from = seat; // the desk I'm leaving (to stand just behind its chair)
     const extra = bankFocus(); // count the running focus phase
     const wanted = Math.round((focusedMs + extra) / 60000); // total (virtual in demo) minutes
     const minutes = await saveStandUp(sittingId ?? "", wanted, note, { hallId, seat, topic }); // save history (database caps at real time)
     setRecapOpen(false); // close recap
     setSeat(null); setSittingId(null); setTopic(""); setPhase("idle"); setPhaseEndsAt(null); setFocusedMs(0); // back to the aisle (a study room stays open until you leave it)
     if (!room?.id) setRoom(null); // demo rooms end with the sitting, as before
+    setRecapThen(null); // reset the choice
+    if (thenWalk) setWalk({ ...standSpot(from), n: Date.now(), pitch: 0.55 }); // step out behind my chair and walk on (the desk is already free); camera a little higher to see over the desk
     say(minutes > 0 ? `Saved: ${minutes} min on ${topic}.` : "Saved. See you at your desk soon."); // quiet confirmation
   };
 
@@ -357,9 +419,13 @@ export default function HallView({ hallId }: { hallId: string }) {
   const total = phaseEndsAt ? phaseEndsAt - phaseStart : 1; // real ms in phase
   const pct = phaseEndsAt ? Math.min(100, Math.max(0, ((now - phaseStart) / total) * 100)) : 0; // progress %
   const liveCount = seatMap.size; // desks in use (incl. me)
+  const walking = !!walk && !seat; // on foot now
+  const canFs = typeof document !== "undefined" && !!document.fullscreenEnabled; // browser allows full screen (not iPhone Safari)
+  const hint3d = `Tap a free desk to sit, or someone’s desk to see their topic.${hasSupabase ? "" : " Demo: open another tab to see live presence."}`; // shorter line over the 3D scene
+  const hint = `Tap a vacant desk to sit. Tap someone’s desk to see their topic or ask to study together.${hasSupabase ? "" : " Demo mode: open another tab to see live presence. (A few desks are local demo students.)"}`; // standing hint
 
   return (
-    <div>
+    <div className={`hall-root ${fs ? "is-fs" : ""}`} ref={rootRef}>
       {/* Hall header: name, rule, privacy toggle, hop to another hall */}
       <div className="hall-head">
         <div>
@@ -403,7 +469,18 @@ export default function HallView({ hallId }: { hallId: string }) {
       {/* 3D reading room when WebGL is available and chosen */}
       {view === "3d" && webgl ? (
         <div className="hall3d-wrap">
-          <Hall3D seatMap={seatMap} myId={profile.id} mySeat={seat} reduced={reduced} rain={rain} onPick={onDesk} hoverSeat={forceHover} />
+          <Hall3D seatMap={seatMap} myId={profile.id} mySeat={seat} reduced={reduced} rain={rain} onPick={onDesk} hoverSeat={forceHover} me={me} walk={seat ? null : walk} walkers={walkersList} onMove={onMove} stick={stick} />
+          {/* Calm frame controls, top-left: walk on foot, and full screen */}
+          <div className="frame-ctl">
+            {!seat && (walking
+              ? <button className="ghost small" onClick={() => setWalk(null)}>Stop walking</button>
+              : <button className="ghost small" onClick={() => setWalk({ ...ENTRANCE, n: Date.now() })}>Walk around</button>)}
+            {canFs && <button className="ghost small" onClick={toggleFs} title="Full screen (F). Esc to leave.">{fs ? "Exit full screen" : "Full screen"}</button>}
+          </div>
+          {/* One short line of help: while walking (fades), or the usual standing hint */}
+          {walking ? <div className={`hint3d ${helpOn ? "" : "faded"}`}><span className="kb-only">WASD or arrows to walk · drag to look · Q/E to turn · </span><span className="touch-only">Use the pad to walk · drag to look · </span>tap a free desk to sit</div> : !seat && <div className="hint3d">{hint3d}</div>}
+          {/* Touch: a small move pad (shown on touch screens only) */}
+          {walking && <MovePad stick={stick} />}
           {/* Minimal timer HUD sits inside the 3D frame, top-right, like a paper note */}
           {seat && (
             <div className="hud3d">
@@ -414,7 +491,8 @@ export default function HallView({ hallId }: { hallId: string }) {
                 {held.length > 0 && <span className="small muted">A note waits for your break</span>}
                 {phase === "focus" && <button className="ghost small" onClick={() => { bankFocus(); startPhase("break", plan.b); }}>Break</button>}
                 {phase !== "focus" && <button className="sage small" onClick={() => startPhase("focus", plan.f)}>{phase === "idle" ? "Next round" : "Back to focus"}</button>}
-                <button className="ghost small" onClick={() => setRecapOpen(true)}>Stand up</button>
+                <button className="ghost small" onClick={() => { setRecapThen(null); setRecapOpen(true); }}>Stand up</button>
+                <button className="ghost small" onClick={() => { setRecapThen("walk"); setRecapOpen(true); }}>Walk around</button>
               </div>
             </div>
           )}
@@ -435,7 +513,7 @@ export default function HallView({ hallId }: { hallId: string }) {
         ))}
       </div>
       )}
-      {!seat && <p className="muted small" style={{ marginTop: 10 }}>Tap a vacant desk to sit. Tap someone’s desk to see their topic or ask to study together.{hasSupabase ? "" : " Demo mode: open another tab to see live presence. (A few desks are local demo students.)"}</p>}
+      {!seat && !(view === "3d" && webgl) && <p className="muted small" style={{ marginTop: 10 }}>{hint}</p>}
 
       {/* Bottom focus bar while seated (2D view) */}
       {seat && !(view === "3d" && webgl) && (
@@ -486,10 +564,32 @@ export default function HallView({ hallId }: { hallId: string }) {
           onClose={() => setCardFor(null)}
         />
       )}
-      {recapOpen && <RecapDialog topic={topic} minutes={Math.round((focusedMs + (phase === "focus" ? Math.max(0, Math.min(now, phaseEndsAt ?? now) - phaseStart) * speed : 0)) / 60000)} onSave={standUp} onBack={() => setRecapOpen(false)} />}
+      {recapOpen && <RecapDialog topic={topic} minutes={Math.round((focusedMs + (phase === "focus" ? Math.max(0, Math.min(now, phaseEndsAt ?? now) - phaseStart) * speed : 0)) / 60000)} onSave={standUp} onBack={() => { setRecapOpen(false); setRecapThen(null); }} />}
       {seat && phase === "break" && !breakHidden && <BreakCard clock={mmss(left)} compact={view === "3d" && webgl} onSkip={() => startPhase("focus", plan.f)} onHide={() => setBreakHidden(true)} />}
       {reportFor && <ReportDialog member={reportFor} onCancel={() => setReportFor(null)} onSend={(reason, note) => report(reportFor, reason, note)} />}
       {toast && <div className="toast" role="status">{toast}</div>}
+    </div>
+  );
+}
+
+// A small round move pad for touch screens: drag the knob to walk (up = forward).
+function MovePad({ stick }: { stick: { x: number; y: number } }) { // writes into the shared stick object
+  const [knob, setKnob] = useState({ x: 0, y: 0 }); // knob offset in pixels (for drawing)
+  const origin = useRef<{ x: number; y: number } | null>(null); // pad centre on screen while touched
+  const R = 40; // setting: knob travel radius in pixels
+  const move = (e: React.PointerEvent) => { // finger moved on the pad
+    if (!origin.current) return; // not touched
+    let dx = e.clientX - origin.current.x, dy = e.clientY - origin.current.y; // offset from centre
+    const d = Math.hypot(dx, dy); // distance
+    if (d > R) { dx *= R / d; dy *= R / d; } // keep inside the pad
+    setKnob({ x: dx, y: dy }); // draw
+    stick.x = dx / R; stick.y = -dy / R; // up on screen = forward
+  };
+  const end = () => { origin.current = null; setKnob({ x: 0, y: 0 }); stick.x = 0; stick.y = 0; }; // let go: stop
+  useEffect(() => end, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <div className="move-pad" aria-label="Move" onPointerDown={(e) => { e.stopPropagation(); (e.target as HTMLElement).setPointerCapture?.(e.pointerId); const r = e.currentTarget.getBoundingClientRect(); origin.current = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; move(e); }} onPointerMove={(e) => { e.stopPropagation(); move(e); }} onPointerUp={end} onPointerCancel={end}>
+      <div className="knob" style={{ transform: `translate(${knob.x}px, ${knob.y}px)` }} />
     </div>
   );
 }
