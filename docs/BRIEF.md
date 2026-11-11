@@ -160,10 +160,7 @@ Open sign-up plus live audio means more strangers and more risk, so these are pa
 
 ## 9. Decisions
 
-**Made (11 Nov 2026):** open sign-up; audio in v1 study rooms; desks show only nickname, avatar, current topic; minimum age 18 (confirmed); Chinmaye and Priya review reports.
-
-**Still open for Chinmaye:**
-1. **Soft-launch size:** a hard cap on accounts in the first weeks to stay inside free tiers and keep moderation manageable.
+**Made (11 Nov 2026):** open sign-up; audio in v1 study rooms; desks show only nickname, avatar, current topic; minimum age 18 (confirmed); Chinmaye and Priya review reports; no soft-launch account cap.
 
 ## Report handling (decided 2026-11-11)
 - Moderators: Chinmaye Mankatalia and Priya.
