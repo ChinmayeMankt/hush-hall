@@ -64,7 +64,7 @@ button.ghost:hover { background: rgba(164, 113, 72, 0.08); }
 button.sage { background: var(--sage); border-color: #5f7b5b; } /* accept / start */
 button.sage:hover { background: #5f7b5b; }
 
-input[type="text"], select, textarea {
+input[type="text"], input[type="email"], input[type="date"], select, textarea {
   font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); /* paper inputs */
   background: #fffdf8; color: var(--ink); width: 100%;
 }
@@ -169,3 +169,15 @@ button.small { padding: 4px 10px; font-size: 0.85rem; } /* compact buttons */
 .tag3d { position: relative; } /* anchor for the thread */
 .zoom3d { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 6px; z-index: 5; } /* zoom buttons */
 .zoom3d button { background: rgba(247, 237, 214, 0.9); width: 34px; padding: 4px 0; } /* paper buttons on the dark scene */
+
+/* ---- Accounts, rooms, voice and moderation (same paper-and-wood look) ---- */
+.narrow { max-width: 520px; margin: 24px auto; } /* sign-in / sign-up cards */
+.notice { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 14px; } /* private notice, calm */
+.room-members { list-style: none; padding: 0; margin: 8px 0; } /* who is in the room */
+.room-members li { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px dashed #b9cbb3; } /* one member */
+.voice-consent, .voice-live { margin-top: 8px; padding: 8px 10px; background: var(--paper-2); border: 1px solid var(--line); border-radius: var(--radius); } /* voice area */
+.speaking { text-decoration: underline; text-decoration-color: var(--sage, #6b8f71); text-underline-offset: 3px; } /* soft "is talking" mark, no flashing */
+.prose h2 { margin-top: 22px; } /* rules page spacing */
+.prose li { margin: 4px 0; } /* readable lists */
+a.btn { display: inline-block; text-decoration: none; color: #fffaf0; } /* link styled as a button */
+a.btn.sage { background: var(--sage); border: 1px solid #5f7b5b; } /* main call to action */

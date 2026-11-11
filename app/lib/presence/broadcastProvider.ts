@@ -8,6 +8,7 @@ import type {
   JoinResponse,
   Member,
   PresenceProvider,
+  SendResult,
   Unsubscribe,
 } from "./types"; // shared contract
 
@@ -79,14 +80,15 @@ export class BroadcastPresence implements PresenceProvider {
   }
 
   // Send a join request; refuses if the target hid themselves or is blocked.
-  sendRequest(toId: string, note: string): JoinRequest | null {
-    if (!this.me) return null; // must be in a hall first
+  // Async to match the real backend (which checks these rules on the server).
+  async sendRequest(toId: string, note: string): Promise<SendResult> {
+    if (!this.me) return { ok: false, reason: "error" }; // must be in a hall first
     const target = this.others.get(toId); // look up the receiver
-    if (!target || target.hideFromRequests || this.blocked.has(toId)) return null; // respect privacy
+    if (!target || target.hideFromRequests || this.blocked.has(toId)) return { ok: false, reason: "unavailable" }; // respect privacy
     const now = Date.now(); // current time
     this.sent = this.sent.filter((s) => now - s.at < REQ_WINDOW_MS); // forget old requests
-    if (this.sent.length >= REQ_MAX_PER_WINDOW) return null; // too many recently
-    if (this.sent.some((s) => s.toId === toId && now - s.at < REQ_SAME_TARGET_MS)) return null; // no repeat nagging
+    if (this.sent.length >= REQ_MAX_PER_WINDOW) return { ok: false, reason: "rate_limited" }; // too many recently
+    if (this.sent.some((s) => s.toId === toId && now - s.at < REQ_SAME_TARGET_MS)) return { ok: false, reason: "rate_limited" }; // no repeat nagging
     this.sent.push({ toId, at: now }); // record this one
     const req: JoinRequest = {
       id: rid(), // new request id
@@ -97,12 +99,12 @@ export class BroadcastPresence implements PresenceProvider {
       sentAt: Date.now(), // timestamp
     };
     this.post({ kind: "request", req }); // deliver to the receiver's tab
-    return req; // caller can show "request sent"
+    return { ok: true, req }; // caller can show "request sent"
   }
 
-  // Answer a request that was sent to us.
-  respond(req: JoinRequest, accepted: boolean) {
-    if (!this.me) return; // not in a hall
+  // Answer a request that was sent to us (async to match the real backend).
+  async respond(req: JoinRequest, accepted: boolean): Promise<JoinResponse | null> {
+    if (!this.me) return null; // not in a hall
     const res: JoinResponse = {
       requestId: req.id, // which request
       fromId: this.me.id, // us
@@ -111,6 +113,7 @@ export class BroadcastPresence implements PresenceProvider {
       roomName: accepted ? `${req.from.name} & ${this.me.name}` : undefined, // simple room name
     };
     this.post({ kind: "response", res }); // send it back
+    return res; // the caller joins the room locally
   }
 
   // Listen for requests addressed to us.
@@ -126,7 +129,7 @@ export class BroadcastPresence implements PresenceProvider {
   }
 
   // Block someone for this tab: hide their desk details and ignore their requests.
-  block(memberId: string) {
+  async block(memberId: string) {
     this.blocked.add(memberId); // remember the block
     this.emitMembers(); // refresh the UI without them
   }

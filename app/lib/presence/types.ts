@@ -37,20 +37,27 @@ export interface JoinResponse {
   toId: string; // the original sender
   accepted: boolean; // true = accept, false = politely decline
   roomName?: string; // name of the small study room when accepted
+  roomId?: string; // real mode: database id of the study room both people joined
 }
+
+// Result of sending a request. Reasons are deliberately vague so nobody learns
+// whether they were blocked: "unavailable" covers hidden, blocked and paused.
+export type SendResult = { ok: true; req: JoinRequest } | { ok: false; reason: "unavailable" | "rate_limited" | "error" }; // outcome
 
 // Unsubscribe function returned by every listener.
 export type Unsubscribe = () => void;
 
-// The interface any realtime backend must implement.
+// The interface any realtime backend must implement. Calls that the server
+// must validate (requests, answers, blocks) are async so a real backend can
+// check every rule before anything happens.
 export interface PresenceProvider {
   join(hallId: string, me: Member): void; // enter a hall and start announcing yourself
   update(me: Member): void; // push a change (seat, topic, phase, settings)
   leave(): void; // leave the hall and tell others
   onMembers(cb: (members: Member[]) => void): Unsubscribe; // live list of others in this hall
-  sendRequest(toId: string, note: string): JoinRequest | null; // null if blocked/hidden
-  respond(req: JoinRequest, accepted: boolean): void; // answer a request addressed to me
+  sendRequest(toId: string, note: string): Promise<SendResult>; // server checks hide/block/rate limits
+  respond(req: JoinRequest, accepted: boolean): Promise<JoinResponse | null>; // answer a request addressed to me
   onRequest(cb: (req: JoinRequest) => void): Unsubscribe; // requests addressed to me
   onResponse(cb: (res: JoinResponse) => void): Unsubscribe; // answers to my requests
-  block(memberId: string): void; // locally block someone: hide them and drop their requests
+  block(memberId: string): Promise<void>; // block someone: hide them, drop their requests, leave shared rooms
 }

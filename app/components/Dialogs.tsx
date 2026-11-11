@@ -4,6 +4,7 @@
 
 import { useState } from "react"; // local form state
 import type { Member } from "@/lib/presence/types"; // member shape
+import { REPORT_REASONS, type ReportReason } from "@/lib/account"; // report reasons (same list as the database)
 
 // ---- Sit-down dialog: step 2 of the ritual (sit -> topic -> timer -> recap) ----
 export function SitDialog(props: {
@@ -136,6 +137,32 @@ export function BreakCard(props: { clock: string; compact?: boolean; onSkip: () 
           <button type="button" className="sage" onClick={props.onSkip}>Back to focus</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---- Report: a reason is required, a note is optional. Private to moderators. ----
+export function ReportDialog(props: { member: Member; onCancel: () => void; onSend: (reason: ReportReason, note: string) => void }) {
+  const [reason, setReason] = useState<ReportReason | "">(""); // nothing pre-selected
+  const [note, setNote] = useState(""); // optional details
+  return (
+    <div className="veil" role="dialog" aria-modal="true">
+      <form className="dialog" onSubmit={(e) => { e.preventDefault(); if (reason) props.onSend(reason, note.trim()); }}>
+        <h2>Report {props.member.name}</h2>
+        <p className="muted small">Only the Hush Hall moderators see this. {props.member.name} won’t be told who reported them. Harassment and safety reports are looked at within 24 hours.</p>
+        <label htmlFor="reason">What happened?</label>
+        <select id="reason" value={reason} onChange={(e) => setReason(e.target.value as ReportReason)}>
+          <option value="" disabled>Choose a reason</option>
+          {REPORT_REASONS.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+        </select>
+        <label htmlFor="rnote">Anything that helps us understand (optional)</label>
+        <textarea id="rnote" maxLength={500} rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="What they wrote or did, roughly when" />
+        <p className="small muted">You can also block them from their desk card so you no longer see each other.</p>
+        <div className="actions">
+          <button type="button" className="ghost" onClick={props.onCancel}>Cancel</button>
+          <button type="submit" className="sage" disabled={!reason}>Send report</button>
+        </div>
+      </form>
     </div>
   );
 }

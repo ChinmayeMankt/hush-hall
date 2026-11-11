@@ -11,10 +11,12 @@ export interface Profile {
   focusMin: number; // Pomodoro focus length in minutes
   breakMin: number; // Pomodoro break length in minutes
   chime: boolean; // gentle chime at phase change (off by default)
+  roomsPaused?: boolean; // real mode: study rooms are paused for this account while a report is reviewed
 }
 
 // One finished study sitting, saved at stand-up.
 export interface Sitting {
+  id?: string; // database id (real mode)
   at: number; // epoch ms when they stood up
   hallId: string; // where they sat
   seat: string; // which desk
@@ -104,4 +106,19 @@ export function weekSummary(history: Sitting[]) {
   const minutes = week.reduce((sum, s) => sum + s.minutes, 0); // total focused minutes
   const days = new Set(week.map((s) => new Date(s.at).toDateString())).size; // distinct days
   return { minutes, days, sittings: week.length }; // summary numbers
+}
+
+// Showing-up summary for the lobby and "My study log". Counts days you came,
+// never days you missed: nothing here can "break" or "reset".
+export function showUpSummary(history: Sitting[]) {
+  const day = (t: number) => new Date(t).toDateString(); // local calendar day
+  const days = new Set(history.map((s) => day(s.at))); // every day with a sitting
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0); // first of this month
+  const thisMonth = new Set(history.filter((s) => s.at >= monthStart.getTime()).map((s) => day(s.at))).size; // days this month
+  let run = 0; // consecutive days up to today (or yesterday, so a not-yet-studied today doesn't hide it)
+  const d = new Date(); d.setHours(12, 0, 0, 0); // midday avoids DST edges
+  if (!days.has(d.toDateString())) d.setDate(d.getDate() - 1); // start from yesterday if today is empty
+  while (days.has(d.toDateString())) { run++; d.setDate(d.getDate() - 1); } // count back
+  const totalMinutes = history.reduce((a, s) => a + s.minutes, 0); // all time
+  return { thisMonth, run, totalDays: days.size, totalMinutes }; // only positive facts
 }

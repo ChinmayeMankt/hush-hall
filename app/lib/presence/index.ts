@@ -1,16 +1,18 @@
-// Single place that decides which presence backend the app uses.
-// Today: the local BroadcastChannel mock. Later: a SupabasePresence class
-// implementing the same PresenceProvider interface (see docs/STACK.md).
+// Single place that decides which presence backend the app uses:
+// Supabase Realtime when the project env vars are set (the real app),
+// otherwise the local BroadcastChannel demo (no network, for offline demos).
 
-import { BroadcastPresence } from "./broadcastProvider"; // local mock
+import { BroadcastPresence } from "./broadcastProvider"; // local demo
+import { SupabasePresence } from "./supabaseProvider"; // real backend
+import { hasSupabase } from "../backend/client"; // env check
 import type { PresenceProvider } from "./types"; // contract
 
 let instance: PresenceProvider | null = null; // one provider per tab
 
 // Return the shared provider, creating it on first use (browser only).
 export function getPresence(): PresenceProvider {
-  if (!instance) instance = new BroadcastPresence(); // swap this line for Supabase later
+  if (!instance) instance = hasSupabase ? new SupabasePresence() : new BroadcastPresence(); // real first, demo fallback
   return instance; // same object for every component
 }
 
-export type { Member, JoinRequest, JoinResponse, Phase } from "./types"; // re-export types
+export type { Member, JoinRequest, JoinResponse, Phase, SendResult } from "./types"; // re-export types
