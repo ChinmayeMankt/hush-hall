@@ -7,9 +7,13 @@ repainted so bare feet read as natural anime feet:
 
 - soles: the dark brown "shoe sole" paint VRoid leaves under shoes is
   replaced with soft, slightly rosier skin, with faint toe, ball and heel pads;
-- toes: crisp toe separations with soft rounding, small pale nails and a
-  light rosy tint at the toe tips (aligned to VRoid's own toe layout and
-  normal map, so the shading still matches);
+- toes: laid out in the foot's own 3D space (not along the UV island), so
+  from above the big toe runs straight along the foot with a small shaded
+  gap to the second toe that opens slightly at the tips; the other toes are
+  graded shorter and angle gently inward as on a real foot, with crisp soft
+  separations, small pale nails (the big-toe nail largest and square to the
+  foot) and a light rosy tint at the toe tips. The toe-web rows still follow
+  VRoid's own layout so the baked normal map shading lines up;
 - ankle: the foot colour is blended into the leg colour at the seam where
   the foot and leg meshes meet, so no line shows at the ankle;
 - heel: a faint rosy tint.
