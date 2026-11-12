@@ -18,6 +18,7 @@ import { VRMLoaderPlugin, VRMUtils, type VRM, type VRMHumanBoneName, VRMExpressi
 export { MODELS } from "./models"; // re-exported for existing imports
 import { fetchModel } from "./models"; // shared, de-duplicated downloads
 import { TOP_TINTS, BARE_BODY, BARE_FEET_RIM_MASK, type Look } from "./looks"; // wardrobe choices
+import { bareFeetGeometry } from "./barefeet"; // natural bare-foot shape (shoes off only)
 
 // Finger joints we pose: 5 fingers x 3 joints x 2 hands.
 export const FINGERS = ["Thumb", "Index", "Middle", "Ring", "Little"] as const; // thumb first
@@ -146,6 +147,20 @@ export function loadTemplate(file: string): Promise<Template> {
       await crisp(bareBody); // same filtering as the body map it replaces
     }
     const bareRim = bareUrl ? await loadRimMask() : undefined; // shared by every character
+    // Barefoot body shape: a copy of the body skin geometry with a natural
+    // forefoot, real toes and a soft arch (barefeet.ts). Only barefoot clones
+    // use it; the shared original stays exactly as it was for shoes on.
+    if (bareUrl) {
+      const bone = (b: VRMHumanBoneName) => vrm.humanoid.getRawBoneNode(b); // raw rig node
+      vrm.scene.traverse((o) => {
+        const m = o as THREE.SkinnedMesh; // candidate
+        if (!m.isSkinnedMesh || Array.isArray(m.material) || !/Body_00_SKIN/.test(m.material.name) || bareGeo.has(m.geometry)) return; // body skin only
+        const idx = (b: VRMHumanBoneName) => { const n = bone(b); return n ? m.skeleton.bones.indexOf(n as THREE.Bone) : -1; }; // bone -> skeleton slot
+        const feet = [{ foot: idx("leftFoot"), toes: idx("leftToes") }, { foot: idx("rightFoot"), toes: idx("rightToes") }]; // both feet
+        if (feet.some((f) => f.foot < 0 || f.toes < 0)) return; // rig without toe bones: keep the original feet
+        try { const g = bareFeetGeometry(m, feet); if (g) bareGeo.set(m.geometry, g); } catch { /* keep the original feet */ }
+      });
+    }
     // VRoid builds the skeleton standing on the shoe soles, so with the shoes
     // hidden the bare feet hover by the sole height (about 1.5-3.5 cm on these
     // characters). Measure it once: lowest body-skin point vs lowest shoe point.
@@ -200,12 +215,15 @@ function soleGap(scene: THREE.Object3D): number {
     const name = (Array.isArray(m.material) ? m.material[0] : m.material).name; // material tells the part
     const isBody = /Body_00_SKIN/.test(name), isShoe = /_Shoes_/.test(name); // which part
     if (!isBody && !isShoe) return; // nothing else matters here
+    const geo = m.geometry; // shoes-on shape, swapped below for the barefoot one (that is what stands on the floor)
+    if (isBody && bareGeo.has(geo)) m.geometry = bareGeo.get(geo)!; // measure the bare feet, toes included
     const idx = m.geometry.index; // drawn vertices only
     const n = idx ? idx.count : m.geometry.attributes.position.count; // how many to check
     for (let i = 0; i < n; i++) {
       m.getVertexPosition(idx ? idx.getX(i) : i, v); m.localToWorld(v); // skinned rest position, world space
       if (isBody) body = Math.min(body, v.y); else shoes = Math.min(shoes, v.y); // track the lowest
     }
+    m.geometry = geo; // the template keeps the original
   });
   if (!isFinite(body) || !isFinite(shoes)) return 0; // no shoes: nothing to correct
   const gap = body - shoes; // how far the bare soles hover
@@ -320,8 +338,12 @@ function dress(m: THREE.Mesh, look: Look, bareBody?: THREE.Texture, bareRim?: TH
   // show in the shaded areas.
   if (bareBody && look.shoes === "off" && /Body_00_SKIN/.test(name)) {
     m.material = Array.isArray(m.material) ? mats.map((mat) => bareSkin(mat, bareBody, bareRim)) : bareSkin(mats[0], bareBody, bareRim); // both passes
+    const g = bareGeo.get(m.geometry); if (g) m.geometry = g; // natural bare-foot shape with toes (shared by every barefoot clone)
   }
 }
+
+// Barefoot body geometry per original body geometry (made once per character in loadTemplate).
+const bareGeo = new WeakMap<THREE.BufferGeometry, THREE.BufferGeometry>(); // original -> barefoot copy
 
 // Shared bare-skin material variants (ten avatars with shoes off still share one).
 const bareCache = new Map<string, THREE.Material>(); // original uuid -> bare clone

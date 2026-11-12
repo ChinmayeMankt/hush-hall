@@ -18,6 +18,21 @@ repainted so bare feet read as natural anime feet:
   the foot and leg meshes meet, so no line shows at the ankle;
 - heel: a faint rosy tint.
 
+Bare-foot shape (components/three/barefeet.ts): with shoes off, the feet
+also get a natural shape at load time — the pointed, shoe-shaped front is
+folded back to the ball of the foot, five real toes per foot are added (big
+toe straight, a small gap to the second toe, the others graded shorter and
+curled slightly) and the inner arch is lifted a little. To go with it,
+`scripts/paint_bare_toes.py` (run after `sharpen_bare_bodies.py`):
+
+- paints a small toe swatch into an unused corner of each texture (texels
+  x 246-302, y 699-733, plus 3 px padding; the toes' UVs point there): the
+  character's foot skin, a rosy pad underneath and at the tip, soft shade at
+  the sides and root, and a small pale nail on top;
+- replaces the toes painted earlier at the front of the foot (now folded
+  into the web between the new toes) with plain skin or sole colour;
+- sets the same softened matcap shine for the swatch in `feet-rim-mask.png`.
+
 Everything outside the painted legs and feet is the character's original
 pixiv body texture at 1024 px (the same pixels the VRM files now use), put
 back by `scripts/sharpen_bare_bodies.py` after each repaint, so arms, hands,

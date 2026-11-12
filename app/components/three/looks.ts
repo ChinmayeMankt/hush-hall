@@ -1,15 +1,16 @@
 // Wardrobe: a deliberately small first set of options that only use what the
 // approved VRoid characters already contain, so faces, hair and the overall
-// look stay exactly as they are. No new meshes, no downloaded assets.
+// look stay exactly as they are. No downloaded assets.
 //  - Outfit colour: the character's own top, or a soft blue / sage
 //    tint multiplied over the original cloth texture (folds and details stay).
 //  - Neck accessory (ribbon / tie) on or off, on characters that have one.
 //  - Shoes and socks off as one choice (look.shoes = "off"): hide the shoe
 //    meshes and, on characters whose socks, tights or leg warmers are painted
 //    into the body texture, swap in a bare-leg/foot variant of that texture
-//    (see BARE_BODY and public/looks/). Faces, hair and anything above the
-//    legs are untouched. Characters already barefoot under the shoes just
-//    hide the shoes.
+//    (see BARE_BODY and public/looks/), and give the feet a natural barefoot
+//    shape with real toes (barefeet.ts; geometry made at load time from the
+//    character's own body mesh). Faces, hair and anything above the ankles
+//    are untouched; with shoes on nothing changes.
 // No three.js import: the profile page and presence code can use this too.
 
 // One person's choices.
