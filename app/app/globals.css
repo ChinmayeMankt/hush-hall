@@ -212,3 +212,16 @@ main:has(.hall3d-wrap) { max-width: none; padding: 10px 14px 14px; } /* the 3D h
 .note-list { list-style: none; margin: 12px 0 0; padding: 0; } /* no bullets */
 .note-item { border-top: 1px solid var(--line); padding: 10px 0; } /* one note */
 .note-item-title { font-weight: 600; } /* title line */
+
+/* Desk notes writing area, hours bars, and the small Spotify player. */
+.note-write { width: 100%; min-height: 200px; resize: vertical; font-family: Georgia, "Times New Roman", serif; font-size: 1rem; line-height: 1.45; } /* empty log, just write */
+button.note-open { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; } /* a list row that opens the note */
+.hour-bars { display: flex; align-items: flex-end; gap: 8px; height: 100px; margin: 12px 0 4px; } /* last 7 days */
+.hour-bar-col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; gap: 4px; } /* one day */
+.hour-bar { width: 100%; background: var(--sage, #6b8f71); border-radius: 3px 3px 0 0; min-height: 2px; } /* the bar itself */
+.tag3d-hours { font-size: 10px; color: #6f5e4e; } /* this-week hours under a name tag */
+.spotify-desk { margin-top: 8px; } /* collapsible player under the desk HUD */
+.spotify-body { margin-top: 8px; } /* pasted link + embed */
+.hud3d { max-width: min(420px, calc(100% - 28px)); } /* room for the extra desk buttons */
+.shared-note { margin: 12px 0; padding: 12px 0; border-top: 1px solid var(--line); } /* public shared note body */
+.focusbar .spotify-desk { flex: 1 1 100%; } /* music sits on its own row in the 2D bar */

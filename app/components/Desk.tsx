@@ -4,6 +4,7 @@
 // the person's avatar, name, public topic and a tiny status lamp.
 
 import type { Member } from "@/lib/presence/types"; // who sits here
+import { formatStudyHours } from "@/lib/studyStats"; // this-week hours on the desk
 
 // Props for a single desk.
 interface Props {
@@ -41,6 +42,7 @@ export default function Desk({ seat, occupant, isMine, isUsual, onClick }: Props
       </span>
       <span className="state"><span className={`lamp ${occupant.phase}`} />{STATUS[occupant.phase]}</span>
       <span className="topic" title={occupant.topic}>{occupant.topic || "…"}</span>
+      {typeof occupant.weekMinutes === "number" && occupant.weekMinutes > 0 && <span className="small muted">{formatStudyHours(occupant.weekMinutes)} this week</span>}
     </button>
   );
 }

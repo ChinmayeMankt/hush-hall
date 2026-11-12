@@ -1,5 +1,5 @@
--- Behaviour tests for private desk notes (0004_desk_notes.sql). Run on a scratch
--- database after local_stub.sql + migrations 0001–0004:
+-- Behaviour tests for private desk notes (0004_desk_notes.sql, with 0005 title rules).
+-- Run on a scratch database after local_stub.sql + migrations 0001–0005:
 --   psql -v ON_ERROR_STOP=1 -f desk_notes_test.sql
 -- Each check raises an error if a rule doesn't hold; the last line prints ALL_DESK_NOTE_RULES_OK.
 
@@ -35,10 +35,10 @@ do $$ begin
 exception when others then if sqlerrm like 'FAIL%' then raise; end if;
 end $$;
 
--- A blank title is refused.
+-- A title longer than 80 characters is refused. (Blank titles are allowed after 0005; see desk_batch2_test.sql.)
 do $$ begin
-  insert into desk_notes (title, note) values ('   ', 'no title');
-  raise exception 'FAIL blank title allowed';
+  insert into desk_notes (title, note) values (repeat('x', 81), 'too long');
+  raise exception 'FAIL title longer than 80 allowed';
 exception when others then if sqlerrm like 'FAIL%' then raise; end if;
 end $$;
 

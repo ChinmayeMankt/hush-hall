@@ -21,6 +21,7 @@ export interface Member {
   floor?: boolean; // true while this person sits on the floor to study (on foot, no desk); topic shows on their tag
   walking?: boolean; // true while this person walks around the hall on foot (no desk); live position comes from the walker store
   lastSeen: number; // epoch ms of last heartbeat, used to drop stale tabs
+  weekMinutes?: number; // this IST week's focused minutes, when they chose to show them; omitted if hidden or zero
 }
 
 // Where a person on foot is right now: floor position, facing and pose.

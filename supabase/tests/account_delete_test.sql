@@ -21,7 +21,8 @@ insert into room_members (room_id, user_id) values ('00000000-0000-0000-0000-000
 insert into join_requests (from_id, to_id, hall_id, note) values ('00000000-0000-0000-0000-0000000000d1', '00000000-0000-0000-0000-0000000000e1', 'science-wing', 'hi'), ('00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000d1', 'science-wing', ''); -- sent and received
 insert into reports (reporter_id, reported_id, reason, urgent, reported_nickname) values ('00000000-0000-0000-0000-0000000000d1', '00000000-0000-0000-0000-0000000000e1', 'spam', false, 'Esha'), ('00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000d1', 'spam', false, 'Dev'); -- filed and received
 insert into account_notices (user_id, body) values ('00000000-0000-0000-0000-0000000000d1', 'A note'); -- a notice
-insert into desk_notes (user_id, title, source, url, note) values ('00000000-0000-0000-0000-0000000000d1', 'PCR steps', 'chatgpt', 'https://example.com/pcr', 'annealing temps'); -- a private desk note
+insert into desk_notes (user_id, title, source, url, note, share_token) values ('00000000-0000-0000-0000-0000000000d1', 'PCR steps', 'chatgpt', 'https://example.com/pcr', 'annealing temps', 'abcdefghijklmnopqrstuvwxyz12'); -- a private desk note with a share link
+insert into timetable_slots (user_id, day, start_min, end_min, subject) values ('00000000-0000-0000-0000-0000000000d1', 0, 540, 660, 'Organic chemistry'); -- a timetable slot
 insert into moderators (user_id) values ('00000000-0000-0000-0000-0000000000d1'); -- even a moderator can leave
 
 -- What the server does: delete the login.
@@ -34,7 +35,7 @@ do $$ declare d uuid := '00000000-0000-0000-0000-0000000000d1'; n int; begin
        + (select count(*) from room_members where user_id = d) + (select count(*) from join_requests where from_id = d or to_id = d)
        + (select count(*) from reports where reporter_id = d or reported_id = d or reviewed_by = d) + (select count(*) from account_notices where user_id = d)
        + (select count(*) from moderators where user_id = d) + (select count(*) from rooms where owner_id = d)
-       + (select count(*) from desk_notes where user_id = d) into n; -- every place a person can appear
+       + (select count(*) from desk_notes where user_id = d) + (select count(*) from timetable_slots where user_id = d) into n; -- every place a person can appear
   if n <> 0 then raise exception 'FAIL % rows about the deleted account remain', n; end if;
 end $$;
 do $$ begin if exists (select 1 from reports where reported_nickname = 'Dev') then raise exception 'FAIL report snapshot kept the deleted nickname'; end if; end $$;

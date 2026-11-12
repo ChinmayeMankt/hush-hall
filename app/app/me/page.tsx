@@ -82,7 +82,7 @@ export default function Me() {
       {hasSupabase && (
         <section className="card" id="delete-account" style={{ marginTop: 16 }}>
           <h2>Delete account</h2>
-          <p className="small muted">This permanently deletes your Hush Hall account: your login and email address, profile and settings, sittings and recaps, usual desks, walking position, blocks, requests, study-room memberships, notices, and reports you filed or that were filed about you. It can’t be undone. <a href="/privacy#delete">Privacy policy</a></p>
+          <p className="small muted">This permanently deletes your Hush Hall account: your login and email address, profile and settings, sittings and recaps, desk notes and any share links, timetable, usual desks, walking position, blocks, requests, study-room memberships, notices, and reports you filed or that were filed about you. It can’t be undone. <a href="/privacy#delete">Privacy policy</a></p>
           {!delOpen ? (
             <div className="actions"><button className="ghost" onClick={() => setDelOpen(true)}>Delete my account…</button></div>
           ) : (

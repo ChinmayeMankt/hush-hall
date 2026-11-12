@@ -7,7 +7,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"; // React hooks
 import Desk from "./Desk"; // one desk tile
-import { BreakCard, DeskCard, RecapDialog, SitDialog, FloorDialog, WardrobeDialog, NotesDialog } from "./Dialogs"; // paper dialogs
+import { BreakCard, DeskCard, RecapDialog, SitDialog, FloorDialog, WardrobeDialog } from "./Dialogs"; // paper dialogs
+import { NotesDialog } from "./NotesDialog"; // private desk notes
+import { StatsDialog } from "./StatsDialog"; // today / this-week hours
+import { TimetableDialog } from "./TimetableDialog"; // private weekly plan
+import { SpotifyPlayer } from "./SpotifyPlayer"; // optional Spotify embed
 import { HALLS, ROWS, DESKS_PER_ROW, demoMembers, hallById } from "@/lib/halls"; // hall data
 import { getPresence, type JoinRequest, type Member, type Phase, type WalkState } from "@/lib/presence"; // presence layer
 import { ENTRANCE, standSpot } from "./three/walk"; // where a walk starts (tiny module: no three.js)
@@ -89,6 +93,8 @@ export default function HallView({ hallId }: { hallId: string }) {
   const [quick, setQuick] = useState(false); // touch: "Quicker" walk toggle (Shift does it on a keyboard)
   const [wardrobe, setWardrobe] = useState(false); // wardrobe dialog open
   const [notesOpen, setNotesOpen] = useState(false); // private desk-notes panel
+  const [statsOpen, setStatsOpen] = useState(false); // study hours panel
+  const [planOpen, setPlanOpen] = useState(false); // timetable panel
 
   const phaseRef = useRef(phase); // latest phase for presence callbacks
   phaseRef.current = phase; // keep it current every render
@@ -527,14 +533,17 @@ export default function HallView({ hallId }: { hallId: string }) {
               <div className="small muted">{phase === "focus" ? "Deep focus" : phase === "break" ? "Short break" : "Ready when you are"} · Desk {seat}</div>
               <div className="hud-clock">{phaseEndsAt ? mmss(phaseEndsAt - now) : "--:--"}</div>
               <div className="small hud-topic">{topic}</div>
-              <div className="row" style={{ gap: 6, marginTop: 8 }}>
+              <div className="row" style={{ gap: 6, marginTop: 8, flexWrap: "wrap" }}>
                 {held.length > 0 && <span className="small muted">A note waits for your break</span>}
                 {phase === "focus" && <button className="ghost small" onClick={() => { bankFocus(); startPhase("break", plan.b); }}>Break</button>}
                 {phase !== "focus" && <button className="sage small" onClick={() => startPhase("focus", plan.f)}>{phase === "idle" ? "Next round" : "Back to focus"}</button>}
                 <button className="ghost small" onClick={() => setNotesOpen(true)}>Notes</button>
+                <button className="ghost small" onClick={() => setStatsOpen(true)}>Hours</button>
+                <button className="ghost small" onClick={() => setPlanOpen(true)}>Timetable</button>
                 <button className="ghost small" onClick={() => { setRecapThen(null); setRecapOpen(true); }}>Stand up</button>
                 <button className="ghost small" onClick={() => { setRecapThen("walk"); setRecapOpen(true); }}>Walk around</button>
               </div>
+              <SpotifyPlayer />
             </div>
           )}
         </div>
@@ -571,8 +580,11 @@ export default function HallView({ hallId }: { hallId: string }) {
               {phase === "focus" && <button className="ghost" onClick={() => { bankFocus(); startPhase("break", plan.b); }}>Take a break</button>}
               {phase !== "focus" && <button className="sage" onClick={() => startPhase("focus", plan.f)}>{phase === "idle" ? "Start next round" : "Back to focus"}</button>}
               <button className="ghost" onClick={() => setNotesOpen(true)}>Notes</button>
+              <button className="ghost" onClick={() => setStatsOpen(true)}>Hours</button>
+              <button className="ghost" onClick={() => setPlanOpen(true)}>Timetable</button>
               <button className="ghost" onClick={() => setRecapOpen(true)}>Stand up</button>
             </div>
+            <SpotifyPlayer />
           </div>
         </div>
       )}
@@ -597,6 +609,8 @@ export default function HallView({ hallId }: { hallId: string }) {
       {floorAsk && <FloorDialog defaultTopic={lastFloorTopic || topic} onCancel={() => setFloorAsk(false)} onSit={(t) => { setFloorAsk(false); setLastFloorTopic(t); setFloor(t); }} />}
       {wardrobe && <WardrobeDialog look={parseLook(profile.look)} hasNeck={HAS_NECK.has(modelFor(profile.id, profile.color, profile.name).file)} onCancel={() => setWardrobe(false)} onSave={dress} />}
       {notesOpen && <NotesDialog onClose={() => setNotesOpen(false)} />}
+      {statsOpen && <StatsDialog liveMinutes={Math.round((focusedMs + (phase === "focus" ? Math.max(0, Math.min(now, phaseEndsAt ?? now) - phaseStart) * speed : 0)) / 60000)} onClose={() => setStatsOpen(false)} />}
+      {planOpen && <TimetableDialog onClose={() => setPlanOpen(false)} />}
       {sitAt && <SitDialog seat={sitAt} defaultFocus={plan.f} defaultBreak={plan.b} onCancel={() => setSitAt(null)} onSit={sit} />}
       {cardFor && (
         <DeskCard

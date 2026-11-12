@@ -221,6 +221,12 @@ export class SupabasePresence implements PresenceProvider {
       const { data: pubs } = await sb.rpc("public_profiles", { ids: need }); // safe public fields
       ((pubs ?? []) as Pub[]).forEach((p) => this.profiles.set(p.id, { p, at: now })); // cache
     }
+    // This week's hours (one number only), for people who left the toggle on. Fail quietly if 0005 is not applied yet.
+    const weekMin = new Map<string, number>(); // id -> focused minutes this IST week
+    if (ids.length) {
+      const { data: hours, error: hoursErr } = await sb.rpc("public_weekly_hours", { ids }); // safe weekly totals
+      if (!hoursErr) ((hours ?? []) as { user_id: string; minutes: number }[]).forEach((r) => { if (r.minutes > 0) weekMin.set(r.user_id, r.minutes); }); // skip zeros
+    }
     this.members = ids.flatMap((id) => {
       const pub = this.profiles.get(id)?.p; // public profile
       if (!pub) return []; // banned / unknown: not shown
@@ -235,6 +241,7 @@ export class SupabasePresence implements PresenceProvider {
         phase: (desk ? b?.phase ?? "idle" : "idle") as Phase, phaseEndsAt: desk ? b?.phaseEndsAt ?? null : null, // timer (from presence)
         hideFromRequests: !pub.takes_requests, lastSeen: now, // privacy + freshness
         walking: !desk && (this.presWalk.has(id) || this.dbWalk.has(id)), // on foot only when they hold no desk (live channel or database)
+        weekMinutes: weekMin.get(id), // undefined when hidden, zero, or the function is not there yet
       } satisfies Member];
     });
     this.emit(); // tell the hall

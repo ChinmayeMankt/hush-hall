@@ -17,6 +17,6 @@ export function ageOn(birth: string, today = new Date()): number | null {
 
 // Privacy contact and the date the privacy policy (app/privacy/page.tsx) last changed.
 export const PRIVACY_CONTACT = "mankataliachinmaye@gmail.com"; // developer contact already used in the docs
-export const PRIVACY_UPDATED = "11 November 2026"; // shown at the top of /privacy
+export const PRIVACY_UPDATED = "12 November 2026"; // shown at the top of /privacy
 
 export const MIN_AGE = 18; // decision: Hush Hall is 18+ (DPDP Act 2023 treats under-18s as children)
