@@ -206,3 +206,9 @@ main:has(.hall3d-wrap) { max-width: none; padding: 10px 14px 14px; } /* the 3D h
 .move-pad .knob { position: absolute; left: 32px; top: 32px; width: 40px; height: 40px; border-radius: 50%; background: rgba(247, 237, 214, 0.9); border: 1px solid #c9b48a; pointer-events: none; } /* the thumb */
 .touch-only { display: none; } /* touch-screen wording hidden on desktop */
 @media (pointer: coarse) { .move-pad { display: block; } .hint3d { bottom: 130px; } .kb-only { display: none; } .touch-only { display: inline; } } /* touch screens: show the pad, lift the help line above it */
+
+/* Private desk notes: a slightly taller paper dialog with a simple list. */
+.dialog.notes { width: min(520px, 100%); max-height: min(86vh, 720px); overflow: auto; } /* keep it on one screen */
+.note-list { list-style: none; margin: 12px 0 0; padding: 0; } /* no bullets */
+.note-item { border-top: 1px solid var(--line); padding: 10px 0; } /* one note */
+.note-item-title { font-weight: 600; } /* title line */

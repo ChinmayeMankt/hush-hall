@@ -2,10 +2,11 @@
 
 // Small paper dialogs used in the hall: sit down, desk card, recap, break.
 
-import { useState } from "react"; // local form state
+import { useEffect, useState } from "react"; // local form and load state
 import type { Member } from "@/lib/presence/types"; // member shape
 import { REPORT_REASONS, type ReportReason } from "@/lib/account"; // report reasons (same list as the database)
 import { TOP_LABELS, type Look } from "./three/looks"; // wardrobe choices (no three.js import)
+import { deleteNote, listNotes, saveNote, NOTE_SOURCES, type DeskNote } from "@/lib/notes"; // private desk notes
 
 // ---- Sit-down dialog: step 2 of the ritual (sit -> topic -> timer -> recap) ----
 export function SitDialog(props: {
@@ -224,6 +225,119 @@ export function WardrobeDialog(props: {
           <button type="submit" className="sage">Save</button>
         </div>
       </form>
+    </div>
+  );
+}
+
+// ---- Private desk notes: title, optional source, optional link, annotation. Only the owner sees these. ----
+export function NotesDialog(props: { onClose: () => void }) {
+  const blank = { title: "", source: "", url: "", note: "" }; // empty form
+  const [notes, setNotes] = useState<DeskNote[]>([]); // my notes, newest first
+  const [loading, setLoading] = useState(true); // first fetch
+  const [filter, setFilter] = useState<string>(""); // source filter ("" = all)
+  const [editing, setEditing] = useState<string | "new" | null>(null); // which form is open
+  const [form, setForm] = useState(blank); // add/edit fields
+  const [error, setError] = useState(""); // calm reason if save fails
+  const [pending, setPending] = useState(false); // disable double submits
+  const [confirmId, setConfirmId] = useState<string | null>(null); // note waiting to be removed
+
+  const refresh = async () => { // reload the list
+    const rows = await listNotes(); // own notes only
+    setNotes(rows); // newest first
+    setLoading(false); // first paint done
+  };
+  useEffect(() => { void refresh(); }, []); // load once when opened
+
+  const shown = filter ? notes.filter((n) => n.source === filter) : notes; // optional source filter
+  const labelFor = (s: DeskNote["source"]) => NOTE_SOURCES.find((x) => x.id === s)?.label ?? ""; // display name
+  const openNew = () => { setEditing("new"); setForm(blank); setError(""); setConfirmId(null); }; // add form
+  const openEdit = (n: DeskNote) => { setEditing(n.id); setForm({ title: n.title, source: n.source ?? "", url: n.url ?? "", note: n.note }); setError(""); setConfirmId(null); }; // edit form
+  const cancelForm = () => { setEditing(null); setForm(blank); setError(""); }; // back to the list
+
+  const submit = async (e: { preventDefault: () => void }) => { // save add or edit
+    e.preventDefault(); // stay in the dialog
+    setPending(true); // one save at a time
+    const res = await saveNote(form, editing === "new" || !editing ? undefined : editing); // no id when adding
+    setPending(false);
+    if (!res.ok) { setError(res.reason); return; } // show why
+    cancelForm(); // close the form
+    await refresh(); // show the new list
+  };
+
+  const remove = async (id: string) => { // delete after confirm
+    setPending(true);
+    const ok = await deleteNote(id); // own row only
+    setPending(false);
+    setConfirmId(null);
+    if (!ok) { setError("Couldn’t remove that note. Try again?"); return; }
+    await refresh();
+  };
+
+  return (
+    <div className="veil" role="dialog" aria-modal="true" onClick={props.onClose}>
+      <div className="dialog notes" onClick={(e) => e.stopPropagation()}>
+        <h2>Desk notes</h2>
+        <p className="muted small">Private to you. Use this to keep titles, links and short notes from ChatGPT, Google, YouTube, books and anywhere else you study. Other people at the desk still only see your nickname, avatar and topic.</p>
+        {editing ? (
+          <form onSubmit={submit}>
+            <label htmlFor="note-title">Title</label>
+            <input id="note-title" type="text" autoFocus maxLength={80} placeholder="e.g. PCR annealing temperatures" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+            <label htmlFor="note-source">Source (optional)</label>
+            <select id="note-source" value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })}>
+              <option value="">No source</option>
+              {NOTE_SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+            <label htmlFor="note-url">Link (optional)</label>
+            <input id="note-url" type="text" maxLength={500} placeholder="https://" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />
+            <label htmlFor="note-body">Annotation (optional)</label>
+            <textarea id="note-body" maxLength={2000} rows={4} placeholder="What to come back to, or how you used this" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+            {error && <p className="small muted" role="alert">{error}</p>}
+            <div className="actions">
+              <button type="button" className="ghost" onClick={cancelForm} disabled={pending}>Back</button>
+              <button type="submit" className="sage" disabled={pending || !form.title.trim()}>{editing === "new" ? "Add note" : "Save"}</button>
+            </div>
+          </form>
+        ) : (
+          <>
+            <div className="row" style={{ gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+              <label htmlFor="note-filter" className="small muted" style={{ margin: 0 }}>Show</label>
+              <select id="note-filter" value={filter} onChange={(e) => setFilter(e.target.value)}>
+                <option value="">All sources</option>
+                {NOTE_SOURCES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+              <button type="button" className="sage small" onClick={openNew} style={{ marginLeft: "auto" }}>Add note</button>
+            </div>
+            {error && <p className="small muted" role="alert">{error}</p>}
+            {loading ? <p className="muted small">Loading your notes…</p> : shown.length === 0 ? (
+              <p className="muted small" style={{ marginTop: 12 }}>{notes.length === 0 ? "No notes yet. Add one to keep a link or a short reminder on your desk." : "No notes from that source."}</p>
+            ) : (
+              <ul className="note-list">
+                {shown.map((n) => (
+                  <li className="note-item" key={n.id}>
+                    <div className="note-item-title">{n.title}</div>
+                    <div className="small muted">{n.source ? labelFor(n.source) : "No source"}{n.url ? " · " : ""}{n.url && <a href={n.url} target="_blank" rel="noopener noreferrer">Open link</a>}</div>
+                    {n.note && <div className="small" style={{ marginTop: 4, whiteSpace: "pre-wrap" }}>{n.note}</div>}
+                    <div className="row" style={{ gap: 6, marginTop: 8 }}>
+                      <button type="button" className="ghost small" onClick={() => openEdit(n)}>Edit</button>
+                      {confirmId === n.id ? (
+                        <>
+                          <button type="button" className="ghost small" onClick={() => remove(n.id)} disabled={pending}>Remove for good</button>
+                          <button type="button" className="ghost small" onClick={() => setConfirmId(null)}>Keep</button>
+                        </>
+                      ) : (
+                        <button type="button" className="ghost small" onClick={() => setConfirmId(n.id)}>Remove</button>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="actions">
+              <button type="button" className="ghost" onClick={props.onClose}>Close</button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

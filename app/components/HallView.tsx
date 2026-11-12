@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"; // React hooks
 import Desk from "./Desk"; // one desk tile
-import { BreakCard, DeskCard, RecapDialog, SitDialog, FloorDialog, WardrobeDialog } from "./Dialogs"; // paper dialogs
+import { BreakCard, DeskCard, RecapDialog, SitDialog, FloorDialog, WardrobeDialog, NotesDialog } from "./Dialogs"; // paper dialogs
 import { HALLS, ROWS, DESKS_PER_ROW, demoMembers, hallById } from "@/lib/halls"; // hall data
 import { getPresence, type JoinRequest, type Member, type Phase, type WalkState } from "@/lib/presence"; // presence layer
 import { ENTRANCE, standSpot } from "./three/walk"; // where a walk starts (tiny module: no three.js)
@@ -88,6 +88,7 @@ export default function HallView({ hallId }: { hallId: string }) {
   const [lastFloorTopic, setLastFloorTopic] = useState(""); // offered again next time
   const [quick, setQuick] = useState(false); // touch: "Quicker" walk toggle (Shift does it on a keyboard)
   const [wardrobe, setWardrobe] = useState(false); // wardrobe dialog open
+  const [notesOpen, setNotesOpen] = useState(false); // private desk-notes panel
 
   const phaseRef = useRef(phase); // latest phase for presence callbacks
   phaseRef.current = phase; // keep it current every render
@@ -530,6 +531,7 @@ export default function HallView({ hallId }: { hallId: string }) {
                 {held.length > 0 && <span className="small muted">A note waits for your break</span>}
                 {phase === "focus" && <button className="ghost small" onClick={() => { bankFocus(); startPhase("break", plan.b); }}>Break</button>}
                 {phase !== "focus" && <button className="sage small" onClick={() => startPhase("focus", plan.f)}>{phase === "idle" ? "Next round" : "Back to focus"}</button>}
+                <button className="ghost small" onClick={() => setNotesOpen(true)}>Notes</button>
                 <button className="ghost small" onClick={() => { setRecapThen(null); setRecapOpen(true); }}>Stand up</button>
                 <button className="ghost small" onClick={() => { setRecapThen("walk"); setRecapOpen(true); }}>Walk around</button>
               </div>
@@ -568,6 +570,7 @@ export default function HallView({ hallId }: { hallId: string }) {
               {held.length > 0 && <span className="small" style={{ opacity: 0.8 }}>A note is waiting for your break</span>}
               {phase === "focus" && <button className="ghost" onClick={() => { bankFocus(); startPhase("break", plan.b); }}>Take a break</button>}
               {phase !== "focus" && <button className="sage" onClick={() => startPhase("focus", plan.f)}>{phase === "idle" ? "Start next round" : "Back to focus"}</button>}
+              <button className="ghost" onClick={() => setNotesOpen(true)}>Notes</button>
               <button className="ghost" onClick={() => setRecapOpen(true)}>Stand up</button>
             </div>
           </div>
@@ -593,6 +596,7 @@ export default function HallView({ hallId }: { hallId: string }) {
       {/* Dialogs */}
       {floorAsk && <FloorDialog defaultTopic={lastFloorTopic || topic} onCancel={() => setFloorAsk(false)} onSit={(t) => { setFloorAsk(false); setLastFloorTopic(t); setFloor(t); }} />}
       {wardrobe && <WardrobeDialog look={parseLook(profile.look)} hasNeck={HAS_NECK.has(modelFor(profile.id, profile.color, profile.name).file)} onCancel={() => setWardrobe(false)} onSave={dress} />}
+      {notesOpen && <NotesDialog onClose={() => setNotesOpen(false)} />}
       {sitAt && <SitDialog seat={sitAt} defaultFocus={plan.f} defaultBreak={plan.b} onCancel={() => setSitAt(null)} onSit={sit} />}
       {cardFor && (
         <DeskCard
