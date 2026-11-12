@@ -153,7 +153,12 @@ export default function VrmAvatar(props: Props) {
     const sway = reduced ? 0 : Math.sin((t + t0) * 0.4) * 0.04; // tiny head drift
     set(B.neck, brk ? -0.1 : foc ? 0.06 : 0.03); set(B.head, brk ? -0.15 : foc ? 0.08 : 0.02, sway, 0); // head only slightly bowed, so the face (and eyes) stay visible from across the hall
     const gaze = brk ? 0 : foc ? 0.12 : 0.05; // eyes glance down at the book instead of the whole head dropping (small, so the eyes stay open-looking)
-    set(B.leftEye, gaze); set(B.rightEye, gaze); // both eyes look down together
+    // Tiny reading saccades: every couple of seconds the eyes hop a little along the
+    // line (and now and then back to its start), like someone actually reading,
+    // so a close-up never looks frozen. Small enough to stay calm.
+    const beat = Math.floor((t + t0) / 2.2); // which "word group" we're on
+    const hop = reduced || brk ? 0 : ((((k + beat * 7919) >>> 0) % 5) - 2) * 0.025; // -0.05..0.05 rad, stepped
+    set(B.leftEye, gaze, hop); set(B.rightEye, gaze, hop); // both eyes look down together
     root.updateWorldMatrix(true, true); // refresh before IK
     // World helpers: forward/right for this seat.
     const fx = (side: number, fwd: number, y: number) => V.b.set(position[0] + side * facing, y, position[2] + fwd * facing); // side>0 = student's left
