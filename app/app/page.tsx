@@ -12,6 +12,7 @@ import { hasSupabase } from "@/lib/backend/client"; // real or demo
 
 export default function Lobby() {
   const [acct, setAcct] = useState<AccountState | null>(null); // null until loaded
+  const [failed, setFailed] = useState(false); // could not reach the library
   const [profile, setProfile] = useState<Profile | null>(null); // my library card
   const [history, setHistory] = useState<Sitting[]>([]); // past sittings
   const [counts, setCounts] = useState<Record<string, number> | null>(null); // people seated per hall (real mode)
@@ -30,7 +31,7 @@ export default function Lobby() {
       setProfile(a.profile); // card
       const [h, c, n] = await Promise.all([loadHistory(), hallCounts(), loadNotices()]); // in parallel
       setHistory(h); setCounts(c); setNotices(n); // show
-    });
+    }).catch(() => setFailed(true)); // never hang on "Opening the doors…"
   }, []);
 
   // Update one profile field and persist it (debounced for typing in the nickname).
@@ -45,6 +46,7 @@ export default function Lobby() {
     timer.t = setTimeout(async () => setSaved((await saveProfile(next)) ? "saved" : "not_saved"), 500); // save after typing pauses
   };
 
+  if (failed) return <p className="muted">Couldn’t open the doors just now. <button className="ghost small" onClick={() => window.location.reload()}>Try again</button></p>; // load failed
   if (!acct) return <p className="muted">Opening the doors…</p>; // first paint
 
   // Signed out (real mode): a calm welcome with one way in.

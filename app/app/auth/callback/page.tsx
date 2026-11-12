@@ -22,7 +22,7 @@ export default function AuthCallback() {
       if (!data.session) { setFailed(true); return; } // link expired or opened in another browser
       const a = await loadAccount(true); // fresh state
       window.location.replace(a.state === "needs_onboarding" ? "/welcome" : next); // continue
-    })();
+    })().catch(() => setFailed(true)); // network / server error: show the retry card, not a spinner
   }, []);
 
   return failed

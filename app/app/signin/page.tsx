@@ -15,8 +15,12 @@ export default function SignIn() {
     e.preventDefault(); // no page reload
     setStage("sending"); // busy
     const next = new URLSearchParams(window.location.search).get("next") ?? "/"; // where to go afterwards
-    const { error } = await supabase().auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next.startsWith("/") ? next : "/")}`, shouldCreateUser: true } }); // open sign-up
-    setStage(error ? "error" : "sent"); // result
+    try {
+      const { error } = await supabase().auth.signInWithOtp({ email: email.trim(), options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next.startsWith("/") ? next : "/")}`, shouldCreateUser: true } }); // open sign-up
+      setStage(error ? "error" : "sent"); // result
+    } catch {
+      setStage("error"); // network failure or paused project: same calm message, never stuck on "Sending…"
+    }
   };
 
   if (!hasSupabase) return <div className="card"><h1>Sign in</h1><p className="muted">This copy of Hush Hall runs in demo mode (no server configured), so there are no accounts. <a href="/">Back to the lobby</a></p></div>; // demo

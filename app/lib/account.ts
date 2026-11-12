@@ -43,7 +43,8 @@ export async function loadAccount(force = false): Promise<AccountState> {
   const { data: s } = await sb.auth.getSession(); // stored session
   const user = s.session?.user; // who
   if (!user) { cached = { state: "signed_out" }; return cached; } // not signed in
-  const { data: row } = await sb.from("profiles").select("id,nickname,avatar,color,hide_from_requests,focus_min,break_min,chime,rooms_suspended").eq("id", user.id).maybeSingle(); // my profile (RLS: own row only)
+  const { data: row, error: profErr } = await sb.from("profiles").select("id,nickname,avatar,color,hide_from_requests,focus_min,break_min,chime,rooms_suspended").eq("id", user.id).maybeSingle(); // my profile (RLS: own row only)
+  if (profErr) throw profErr; // a failed query is not "no profile": callers show a retry instead of sending people to sign up again
   if (!row) { cached = { state: "needs_onboarding", email: user.email ?? "" }; return cached; } // finish sign-up first
   const { data: lk } = await sb.from("profiles").select("look").eq("id", user.id).maybeSingle(); // wardrobe, read on its own so a database without the column (migration 0003 not run yet) still loads the profile
   const { error: modErr } = await sb.rpc("mod_queue", { p_status: "none" }); // cheap moderator check (empty result for moderators, error for others)

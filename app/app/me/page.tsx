@@ -14,6 +14,7 @@ export default function Me() {
   const [history, setHistory] = useState<Sitting[]>([]); // sittings
   const [confirm, setConfirm] = useState(""); // typed DELETE
   const [msg, setMsg] = useState(""); // status line
+  const [loadFailed, setLoadFailed] = useState(false); // could not load my log
   // Account deletion is two calm steps: open the panel, then type DELETE and confirm.
   const [delOpen, setDelOpen] = useState(false); // second step shown?
   const [delBusy, setDelBusy] = useState(false); // request in flight
@@ -25,7 +26,7 @@ export default function Me() {
       if (a.state === "signed_out") { window.location.href = "/signin?next=/me"; return; } // sign in first
       if (a.state === "needs_onboarding") { window.location.href = "/welcome"; return; } // finish sign-up
       setProfile(a.profile); setHistory(await loadHistory()); // show
-    });
+    }).catch(() => setLoadFailed(true)); // don't hang on the loading line
   }, []);
 
   // Change one setting and save it.
@@ -41,6 +42,7 @@ export default function Me() {
     await signOut(); window.location.href = "/?deleted=1"; // signed out and gone
   };
 
+  if (loadFailed) return <p className="muted">Couldn’t open your log just now. <button className="ghost small" onClick={() => window.location.reload()}>Try again</button></p>; // load failed
   if (!profile) return <p className="muted">Opening your log…</p>; // loading
   const week = weekSummary(history); // this week
   const show = showUpSummary(history); // positive-only counts

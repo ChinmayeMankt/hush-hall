@@ -67,6 +67,7 @@ export default function HallView({ hallId }: { hallId: string }) {
   const [sittingId, setSittingId] = useState<string | null>(null); // database id of my current sitting (real mode)
   const [reportFor, setReportFor] = useState<Member | null>(null); // report dialog target
   const [toast, setToast] = useState<string | null>(null); // one quiet message at a time
+  const [loadFailed, setLoadFailed] = useState(false); // could not load my account
 
   // ---- view settings ----
   const [webgl, setWebgl] = useState(false); // can this device draw 3D?
@@ -112,7 +113,7 @@ export default function HallView({ hallId }: { hallId: string }) {
       setUsual(await usualSeat(hallId)); // returning seat
       const r = await loadMyRoom(p.id); // still in a study room from before?
       if (live && r) setRoom(r); // show it
-    });
+    }).catch(() => { if (live) setLoadFailed(true); }); // don't hang on "Walking in…"
     const q = new URLSearchParams(window.location.search); // URL options
     const sp = Number(q.get("speed")); // demo speed
     if (sp > 0 && !hasSupabase) setSpeed(sp); // fast timers only in offline demos (real history must be real minutes)
@@ -446,6 +447,7 @@ export default function HallView({ hallId }: { hallId: string }) {
     say(ok ? (hasSupabase && !m.isDemo ? "Thanks. A moderator will look at this. They won’t be told who reported them." : "Thanks. Report noted (demo: kept on this device only).") : "That report didn’t go through. Please try again."); // confirm
   };
 
+  if (loadFailed) return <p className="muted">Couldn’t walk in just now. <button className="ghost small" onClick={() => window.location.reload()}>Try again</button></p>; // load failed
   if (!profile || !me) return <p className="muted">Walking in…</p>; // first paint
 
   // Derived values for the focus bar.
