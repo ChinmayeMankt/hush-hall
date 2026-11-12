@@ -162,7 +162,7 @@ export default function VrmAvatar(props: Props) {
       const L = s > 0 ? "left" : "right"; // side name
       const up = B[`${L}UpperLeg`], lo = B[`${L}LowerLeg`], ft = B[`${L}Foot`]; // chain
       if (!up || !lo || !ft) continue;
-      const tgt = T.t.copy(fx(s * 0.11, 0.5, 0.08)); // ankle target
+      const tgt = T.t.copy(fx(s * 0.11, 0.5, inst.barefoot ? inst.ankleY : 0.08)); // ankle target (barefoot: at the character's own ankle height, so bare soles rest on the floor)
       ik2(up, lo, ft, tgt, T.p.set(0, 0.2, facing).normalize()); // knee goes forward/up
       ft.rotation.set(0, 0, 0); // flat-ish foot
     }

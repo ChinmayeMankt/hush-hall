@@ -31,18 +31,26 @@ export const TOP_LABELS: Record<Look["top"], string> = { orig: "Original", blue:
 // Characters that wear a neck accessory (from the model files' material list).
 export const HAS_NECK = new Set(["sendagaya_shibu.vrm", "sendagaya_shino.vrm", "sakurada_fumiriya.vrm"]); // ribbon / tie
 
-// Bare-leg/foot variants of each character's own Body_00 texture (512x512 PNG,
-// same resolution as the source). Swap these onto the body material when
-// shoes=off (vrm.ts). Every character in the current roster has a variant.
+// Bare-leg/foot variants of each character's own Body_00 texture (1024x1024
+// lossless WebP: the source upscaled, with the feet repainted at the higher
+// resolution so toes, nails and soles stay crisp; see public/looks/README.md).
+// Swap these onto the body material when shoes=off (vrm.ts). Every character
+// in the current roster has a variant.
 export const BARE_BODY: Record<string, string> = {
-  "sendagaya_shibu.vrm": "/looks/sendagaya_shibu.body-bare.png", // knee-high socks painted out
-  "sendagaya_shino.vrm": "/looks/sendagaya_shino.body-bare.png", // same body texture as Shibu
-  "vivi.vrm": "/looks/vivi.body-bare.png", // mid-calf leg warmers painted out (feet were already bare)
-  "victoria_rubin.vrm": "/looks/victoria_rubin.body-bare.png", // thigh-high tights painted out
-  "vita.vrm": "/looks/vita.body-bare.png", // gradient leggings and navy soles painted out
-  "sakurada_fumiriya.vrm": "/looks/sakurada_fumiriya.body-bare.png", // ankle socks under the trouser cuffs
-  "hairsample_male.vrm": "/looks/hairsample_male.body-bare.png", // ankle socks under the trouser cuffs
+  "sendagaya_shibu.vrm": "/looks/sendagaya_shibu.body-bare.webp", // knee-high socks painted out
+  "sendagaya_shino.vrm": "/looks/sendagaya_shino.body-bare.webp", // same body texture as Shibu
+  "vivi.vrm": "/looks/vivi.body-bare.webp", // mid-calf leg warmers painted out (feet were already bare)
+  "victoria_rubin.vrm": "/looks/victoria_rubin.body-bare.webp", // thigh-high tights painted out
+  "vita.vrm": "/looks/vita.body-bare.webp", // gradient leggings and navy soles painted out
+  "sakurada_fumiriya.vrm": "/looks/sakurada_fumiriya.body-bare.webp", // ankle socks under the trouser cuffs
+  "hairsample_male.vrm": "/looks/hairsample_male.body-bare.webp", // ankle socks under the trouser cuffs
 };
+
+// Soft mask (shared by every character: VRoid's foot UV layout is the same on
+// all of them) that tones down the MToon matcap shine on bare toes and soles,
+// where it otherwise reads as a plastic glint. White = unchanged, so legs,
+// hands and everything else keep exactly the shine they have now.
+export const BARE_FEET_RIM_MASK = "/looks/feet-rim-mask.png";
 
 // Read a stored look string ("top=blue;neck=off;shoes=off"); anything unknown falls back to the default.
 export function parseLook(s?: string | null): Look {

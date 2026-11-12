@@ -17,7 +17,7 @@ import { VRMLoaderPlugin, VRMUtils, type VRM, type VRMHumanBoneName, VRMExpressi
 // The character roster lives in models.ts (no three.js import), so the page can prefetch files early.
 export { MODELS } from "./models"; // re-exported for existing imports
 import { fetchModel } from "./models"; // shared, de-duplicated downloads
-import { TOP_TINTS, BARE_BODY, type Look } from "./looks"; // wardrobe choices
+import { TOP_TINTS, BARE_BODY, BARE_FEET_RIM_MASK, type Look } from "./looks"; // wardrobe choices
 
 // Finger joints we pose: 5 fingers x 3 joints x 2 hands.
 export const FINGERS = ["Thumb", "Index", "Middle", "Ring", "Little"] as const; // thumb first
@@ -44,6 +44,8 @@ export interface Template {
   morphs: Record<"blink" | "happy" | "relaxed", { mesh: string; index: number }[]>; // expression -> mesh/morph pairs
   isVRM0: boolean; // VRM 0.x needs X/Z rotations mirrored
   bareBody?: THREE.Texture; // socks-off body map, swapped in when shoes=off
+  bareRim?: THREE.Texture; // matcap mask for bare feet (see BARE_FEET_RIM_MASK)
+  bareLift: number; // how far the bare body's soles sit above the floor at rest (the shoe sole height), metres
 }
 
 // A posable clone handed to an avatar.
@@ -53,9 +55,24 @@ export interface Instance {
   setExpression: (name: "blink" | "happy" | "relaxed", w: number) => void; // morph weight 0..1
   hipsY: number; // hips rest height
   sign: number; // -1 for VRM 0.x (mirror X/Z rotations), 1 for VRM 1.0
+  barefoot: boolean; // shoes (and socks) off: the body has been lowered so bare soles touch the floor
+  ankleY: number; // ankle (foot bone) height above the floor at rest, after any barefoot lowering
 }
 
 const cache = new Map<string, Promise<Template>>(); // url -> template (each file loads once)
+
+// The bare-feet matcap mask, loaded once for all characters. A missing mask
+// only means toes keep the regular shine, so a failure is not fatal.
+let rimMask: Promise<THREE.Texture | undefined> | undefined; // shared download
+function loadRimMask() {
+  rimMask ??= new THREE.TextureLoader().loadAsync(BARE_FEET_RIM_MASK).then((t) => {
+    t.colorSpace = THREE.NoColorSpace; // a mask, not a colour
+    t.flipY = false; // glTF / VRM UV origin, like the body map
+    t.needsUpdate = true; // apply
+    return t;
+  }).catch(() => undefined); // keep going without it
+  return rimMask;
+}
 
 // Merge primitives that share a material into one mesh, so a VRoid model costs
 // ~15 draw calls instead of ~100. Morph-target meshes (the face) are left alone.
@@ -126,7 +143,12 @@ export function loadTemplate(file: string): Promise<Template> {
       bareBody.flipY = false; // glTF / VRM UVs start at the top-left, not WebGL's bottom-left
       bareBody.needsUpdate = true; // apply the colour space and flip
     }
-    return { scene: vrm.scene, boneNames, hipsY, morphs, isVRM0, bareBody };
+    const bareRim = bareUrl ? await loadRimMask() : undefined; // shared by every character
+    // VRoid builds the skeleton standing on the shoe soles, so with the shoes
+    // hidden the bare feet hover by the sole height (about 1.5-3.5 cm on these
+    // characters). Measure it once: lowest body-skin point vs lowest shoe point.
+    const bareLift = soleGap(vrm.scene); // 0 when there is nothing to correct
+    return { scene: vrm.scene, boneNames, hipsY, morphs, isVRM0, bareBody, bareRim, bareLift };
   })();
   cache.set(url, p); // remember even while loading
   p.catch(() => cache.delete(url)); // allow retry after a failure
@@ -147,11 +169,45 @@ export function instantiate(t: Template, tint?: { skin?: THREE.Color; hair?: THR
   const morphs = Object.fromEntries(Object.entries(t.morphs).map(([k, list]) => [k, list.map((x) => ({ mesh: byUuid.get(x.mesh) as THREE.Mesh, index: x.index })).filter((x) => x.mesh)])) as Record<string, { mesh: THREE.Mesh; index: number }[]>; // per-clone targets
   root.traverse((o) => { o.frustumCulled = false; (o as THREE.Mesh).raycast = () => {}; }); // clones don't copy these: no culling glitches, no click stealing
   if (tint) root.traverse((o) => tintMesh(o as THREE.Mesh, tint)); // recolour
-  if (look) root.traverse((o) => dress(o as THREE.Mesh, look, t.bareBody)); // wardrobe choices
+  if (look) root.traverse((o) => dress(o as THREE.Mesh, look, t.bareBody, t.bareRim)); // wardrobe choices
+  // Barefoot: lower the whole body (via the hips bone, which every pose only
+  // rotates) by the shoe sole height so the bare soles rest on the floor
+  // instead of floating. hipsY drops by the same amount, so seated and
+  // kneeling poses that place the hips from hipsY keep the hips where they were.
+  const barefoot = look?.shoes === "off"; // shoes and socks off
+  const lift = barefoot ? t.bareLift : 0; // metres to lower
+  if (lift && bones.hips) bones.hips.position.y -= lift; // whole body down
+  const foot = bones.leftFoot ? t.scene.getObjectByName(t.boneNames.leftFoot!) : undefined; // rest ankle (template is never posed)
+  const ankleY = (foot ? foot.getWorldPosition(new THREE.Vector3()).y : 0.1) - lift; // ankle height above the floor at rest
   return {
-    root, bones, hipsY: t.hipsY, sign: t.isVRM0 ? -1 : 1,
+    root, bones, hipsY: t.hipsY - lift, sign: t.isVRM0 ? -1 : 1, barefoot, ankleY,
     setExpression: (name, w) => morphs[name]?.forEach(({ mesh, index }) => { if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[index] = w; }), // set weight
   };
+}
+
+// Height of the bare soles above the floor in the rest pose: the lowest point
+// of the visible body skin (feet) minus the lowest point of the shoes. Only
+// triangles that are actually drawn count (VRoid keeps unused vertices).
+function soleGap(scene: THREE.Object3D): number {
+  let body = Infinity, shoes = Infinity; // lowest y of each
+  const v = new THREE.Vector3(); // scratch
+  scene.updateMatrixWorld(true); // rest pose
+  scene.traverse((o) => {
+    const m = o as THREE.SkinnedMesh; // candidate
+    if (!m.isSkinnedMesh) return; // skinned body parts only
+    const name = (Array.isArray(m.material) ? m.material[0] : m.material).name; // material tells the part
+    const isBody = /Body_00_SKIN/.test(name), isShoe = /_Shoes_/.test(name); // which part
+    if (!isBody && !isShoe) return; // nothing else matters here
+    const idx = m.geometry.index; // drawn vertices only
+    const n = idx ? idx.count : m.geometry.attributes.position.count; // how many to check
+    for (let i = 0; i < n; i++) {
+      m.getVertexPosition(idx ? idx.getX(i) : i, v); m.localToWorld(v); // skinned rest position, world space
+      if (isBody) body = Math.min(body, v.y); else shoes = Math.min(shoes, v.y); // track the lowest
+    }
+  });
+  if (!isFinite(body) || !isFinite(shoes)) return 0; // no shoes: nothing to correct
+  const gap = body - shoes; // how far the bare soles hover
+  return gap > 0.002 && gap < 0.08 ? gap : 0; // ignore noise and anything implausible
 }
 
 // Face fill: the hall is lit from high above, so a head tilted toward a book
@@ -161,7 +217,7 @@ export function instantiate(t: Template, tint?: { skin?: THREE.Color; hair?: THR
 // the desk lamp were bouncing light up off the open book, and lift their shadow
 // colour so the shaded side of the face still shows its features.
 const FILL = new THREE.Color("#ffd9b0"); // warm lamp-bounce colour
-type Toon = THREE.Material & { color?: THREE.Color; map?: THREE.Texture | null; emissive?: THREE.Color; emissiveMap?: THREE.Texture | null; shadeColorFactor?: THREE.Color; shadeMultiplyTexture?: THREE.Texture | null }; // MToon fields we touch
+type Toon = THREE.Material & { color?: THREE.Color; map?: THREE.Texture | null; emissive?: THREE.Color; emissiveMap?: THREE.Texture | null; shadeColorFactor?: THREE.Color; shadeMultiplyTexture?: THREE.Texture | null; rimMultiplyTexture?: THREE.Texture | null }; // MToon fields we touch
 function faceFill(m: THREE.Mesh) {
   if (!m.isMesh) return; // only meshes
   const mats = (Array.isArray(m.material) ? m.material : [m.material]) as Toon[]; // surface (+ outline)
@@ -182,7 +238,7 @@ function faceFill(m: THREE.Mesh) {
 // own mesh after merging, so nothing else changes), tint the top, and when
 // shoes are off, swap the body skin map for the bare-leg/foot variant so
 // painted socks, tights and leg warmers come off with the shoes.
-function dress(m: THREE.Mesh, look: Look, bareBody?: THREE.Texture) {
+function dress(m: THREE.Mesh, look: Look, bareBody?: THREE.Texture, bareRim?: THREE.Texture) {
   if (!m.isMesh) return; // only meshes
   const mats = (Array.isArray(m.material) ? m.material : [m.material]) as Toon[]; // surface (+ outline)
   const name = mats[0]?.name ?? ""; // material name tells the part
@@ -195,19 +251,20 @@ function dress(m: THREE.Mesh, look: Look, bareBody?: THREE.Texture) {
   // slot also uses Body_00; if we only swapped map, socks would still
   // show in the shaded areas.
   if (bareBody && look.shoes === "off" && /Body_00_SKIN/.test(name)) {
-    m.material = Array.isArray(m.material) ? mats.map((mat) => bareSkin(mat, bareBody)) : bareSkin(mats[0], bareBody); // both passes
+    m.material = Array.isArray(m.material) ? mats.map((mat) => bareSkin(mat, bareBody, bareRim)) : bareSkin(mats[0], bareBody, bareRim); // both passes
   }
 }
 
 // Shared bare-skin material variants (ten avatars with shoes off still share one).
 const bareCache = new Map<string, THREE.Material>(); // original uuid -> bare clone
-function bareSkin(mat: Toon, tex: THREE.Texture): THREE.Material {
+function bareSkin(mat: Toon, tex: THREE.Texture, rim?: THREE.Texture): THREE.Material {
   const key = `${mat.uuid}:bare`; // one clone per source material
   if (!bareCache.has(key)) {
     const v = mat.clone() as Toon; // leave the shared original untouched
     v.map = tex; // lit colour
     if ("shadeMultiplyTexture" in v) v.shadeMultiplyTexture = tex; // MToon shade (same Body_00 on these characters)
     if (v.emissiveMap) v.emissiveMap = tex; // faceFill glow follows the painted skin, including bare legs
+    if (rim && "rimMultiplyTexture" in v) v.rimMultiplyTexture = rim; // softer matcap shine on bare toes and soles only (white elsewhere)
     v.needsUpdate = true; // pick up the new maps
     bareCache.set(key, v); // share
   }

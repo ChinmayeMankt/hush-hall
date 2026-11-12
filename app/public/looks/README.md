@@ -1,11 +1,31 @@
 Bare-leg/foot variants of each VRoid sample's Body_00 skin texture.
 
-These 512x512 PNGs start from the character's own body texture and only
-repaint sock, tight, or leg-warmer regions as bare skin (and bare feet
-where the foot was also painted with a sock). Faces, hair, hands and
-anything above the legs are unchanged.
+`{character}.body-bare.webp` (1024x1024, lossless WebP) start from the
+character's own body texture. Sock, tight and leg-warmer regions are painted
+out as bare skin, and the two foot UV islands (top/toes and sole) are
+repainted so bare feet read as natural anime feet:
 
-Hush Hall swaps the matching file onto the body material (main map and
-the MToon shade slot) when the wardrobe choice "Shoes and socks off" is
-on (`look.shoes === "off"`). The original textures inside the VRM files
-are never overwritten.
+- soles: the dark brown "shoe sole" paint VRoid leaves under shoes is
+  replaced with soft, slightly rosier skin, with faint toe, ball and heel pads;
+- toes: crisp toe separations with soft rounding, small pale nails and a
+  light rosy tint at the toe tips (aligned to VRoid's own toe layout and
+  normal map, so the shading still matches);
+- ankle: the foot colour is blended into the leg colour at the seam where
+  the foot and leg meshes meet, so no line shows at the ankle;
+- heel: a faint rosy tint.
+
+Everything outside the foot islands is a plain upscale of the previous
+512x512 texture, so faces, hair, hands and anything above the legs render
+the same. All textures are the characters' own CC0 VRoid art (pixiv Inc.);
+no third-party images are used.
+
+`feet-rim-mask.png` (256x256, greyscale) is a shared mask for the MToon
+matcap shine (`rimMultiplyTexture`): white everywhere, darker on the toes
+and soles only, so bare toes don't catch a plastic-looking glint. VRoid
+uses the same foot UV layout on all seven characters, so one mask fits all.
+
+Hush Hall swaps these onto the body material (main map, the MToon shade
+slot and the matcap mask) when the wardrobe choice "Shoes and socks off" is
+on (`look.shoes === "off"`), and lowers the body by the shoe-sole height so
+bare soles rest on the floor. The original textures inside the VRM files are
+never overwritten.
