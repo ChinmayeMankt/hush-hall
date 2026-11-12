@@ -18,9 +18,11 @@ repainted so bare feet read as natural anime feet:
   the foot and leg meshes meet, so no line shows at the ankle;
 - heel: a faint rosy tint.
 
-Everything outside the foot islands is a plain upscale of the previous
-512x512 texture, so faces, hair, hands and anything above the legs render
-the same. All textures are the characters' own CC0 VRoid art (pixiv Inc.);
+Everything outside the painted legs and feet is the character's original
+pixiv body texture at 1024 px (the same pixels the VRM files now use), put
+back by `scripts/sharpen_bare_bodies.py` after each repaint, so arms, hands,
+neck and torso stay as sharp barefoot as with shoes on. Texels VRoid cuts out
+under clothes stay cut out. All textures are the characters' own CC0 VRoid art (pixiv Inc.);
 no third-party images are used.
 
 `feet-rim-mask.png` (256x256, greyscale) is a shared mask for the MToon
