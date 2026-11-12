@@ -35,7 +35,8 @@ The seated students are **VRoid sample characters by pixiv Inc. (VRoid Project),
 - Seed-san (VirtualCast). Credit is required; not needed.
 
 **Our modifications** (allowed under CC0):
-- Textures downscaled to 512 px, with opaque ones re-encoded as JPEG.
+- Textures first downscaled to 512 px (optimize_vrm.py). Colour and cut-out textures were later restored from pixiv's originals at up to 1024 px as WebP (scripts/restore_vrm_textures.py, 12 Nov 2026): face/eye art lossless, the rest high-quality lossy; normal/specular/matcap maps unchanged; transparent texels colour-filled so filtering leaves no dark fringes.
+- Vita's outfit layer is flattened onto a near-black fabric colour so she keeps the dark long-sleeved dress the hall has always shown (her original texture is a see-through bodysuit).
 - Morph targets trimmed to blink, happy, relaxed and "a".
 - Toon outlines kept only on hair and face.
 - Skin and hair colours tinted at runtime for Indian-inclusive looks.

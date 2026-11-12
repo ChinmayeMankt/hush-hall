@@ -116,6 +116,7 @@ export function loadTemplate(file: string): Promise<Template> {
       if (m.isMesh && Array.isArray(m.material) && /CLOTH|Body/.test(m.material[0].name)) { m.material = m.material[0]; m.geometry.clearGroups(); } // surface only
     });
     mergeByMaterial(gltf.scene); // fewer draw calls
+    await sharpen(gltf.scene); // mipmaps + anisotropic filtering + smooth cut-out edges (shared by every clone)
     gltf.scene.traverse((o) => faceFill(o as THREE.Mesh)); // soft "desk lamp" fill on faces and hands (shared by every clone)
     const extras: THREE.Object3D[] = []; // spring-bone colliders + the normalized rig (we pose raw bones, no physics)
     gltf.scene.traverse((o) => { if ("colliderMatrix" in o || o === vrm.humanoid.normalizedHumanBonesRoot) extras.push(o); }); // can't be cloned safely
@@ -142,6 +143,7 @@ export function loadTemplate(file: string): Promise<Template> {
       bareBody.colorSpace = THREE.SRGBColorSpace; // the PNG is sRGB, like the original body map
       bareBody.flipY = false; // glTF / VRM UVs start at the top-left, not WebGL's bottom-left
       bareBody.needsUpdate = true; // apply the colour space and flip
+      await crisp(bareBody); // same filtering as the body map it replaces
     }
     const bareRim = bareUrl ? await loadRimMask() : undefined; // shared by every character
     // VRoid builds the skeleton standing on the shoe soles, so with the shoes
@@ -208,6 +210,72 @@ function soleGap(scene: THREE.Object3D): number {
   if (!isFinite(body) || !isFinite(shoes)) return 0; // no shoes: nothing to correct
   const gap = body - shoes; // how far the bare soles hover
   return gap > 0.002 && gap < 0.08 ? gap : 0; // ignore noise and anything implausible
+}
+
+// Texture definition. VRoid files ask for plain LINEAR minification (no
+// mipmaps), so textures shimmer and turn grainy once a character is more than
+// a metre or two away, and get blurry at glancing angles (cheeks, hair, sleeves).
+// We give every texture a mip chain and anisotropic filtering (three.js clamps
+// to what the GPU supports; the GPU does this in hardware, nearly free), and
+// let cut-out (alpha-test) parts such as hair strands, collars and lace use
+// alpha-to-coverage, so their edges are antialiased by the MSAA we already
+// render with instead of stair-stepping. Face and eye art is the exception:
+// mip blending there dulls the eye highlights and softens lashes and irises
+// (they are drawn small and already at full detail), so it keeps the plain
+// LINEAR filtering the VRoid export asks for, now on the full-size textures. Phones that report 2 GB of memory
+// or less get the colour maps at half size (512 px, as before this change),
+// so the higher-resolution textures never push a small device over its limit.
+const LOW_MEMORY = typeof navigator !== "undefined" && ((navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8) <= 2; // Chrome/Android only; others keep full size
+const ANISOTROPY = LOW_MEMORY ? 4 : 8; // samples along a slanted surface
+const TEX_SLOTS = ["map", "shadeMultiplyTexture", "normalMap", "emissiveMap", "matcapTexture", "rimMultiplyTexture", "shadingShiftTexture", "outlineWidthMultiplyTexture", "uvAnimationMaskTexture"] as const; // MToon texture fields
+async function crisp(t: THREE.Texture, mips = true) {
+  if (t.userData.crisp) return; // shared textures: once
+  t.userData.crisp = true; // mark
+  const img = t.image as { width?: number; height?: number } | undefined; // ImageBitmap / HTMLImageElement
+  if (LOW_MEMORY && img?.width && img.height && Math.max(img.width, img.height) > 512 && typeof createImageBitmap === "function") {
+    const s = 512 / Math.max(img.width, img.height); // halve (or more) the big ones
+    try { t.image = await createImageBitmap(t.image as ImageBitmapSource, { resizeWidth: Math.round(img.width * s), resizeHeight: Math.round(img.height * s), resizeQuality: "high" }); } catch { /* keep full size */ }
+  }
+  t.generateMipmaps = mips; // build the mip chain on upload
+  t.minFilter = mips ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter; // trilinear: no shimmer at a distance
+  t.magFilter = THREE.LinearFilter; // smooth up close
+  t.anisotropy = ANISOTROPY; // sharp at glancing angles
+  t.needsUpdate = true; // re-upload with the new settings
+}
+// three.js's own alpha-to-coverage test uses smoothstep(cut, cut + fwidth(a), a),
+// which is undefined where the alpha is flat (fwidth = 0) and on some GPUs
+// throws away whole solid areas such as sleeves. This version keeps exactly the
+// same cut-off line but only softens it across the one pixel where alpha
+// actually changes, and falls back to the plain test where it doesn't.
+const ALPHA_CHUNK = "#include <alphatest_fragment>"; // what MToon includes
+const SOFT_ALPHA_TEST = `
+#ifdef USE_ALPHATEST
+  #ifdef ALPHA_TO_COVERAGE
+    float aw = fwidth( diffuseColor.a ); // alpha change across this pixel
+    diffuseColor.a = aw > 1e-4 ? clamp( ( diffuseColor.a - alphaTest ) / aw + 0.5, 0.0, 1.0 ) : step( alphaTest, diffuseColor.a ); // soft edge, hard where flat
+    if ( diffuseColor.a <= 0.0 ) discard;
+  #else
+    if ( diffuseColor.a < alphaTest ) discard;
+  #endif
+#endif
+`;
+async function sharpen(scene: THREE.Object3D) {
+  const jobs: Promise<void>[] = []; // texture work (only async on low-memory phones)
+  scene.traverse((o) => {
+    const m = o as THREE.Mesh; // candidate
+    if (!m.isMesh) return; // only meshes
+    for (const mat of (Array.isArray(m.material) ? m.material : [m.material]) as (THREE.Material & Record<string, unknown>)[]) {
+      const u = (mat as { uniforms?: Record<string, { value: unknown }> }).uniforms; // MToon shader uniforms
+      if (u?.alphaTest && mat.alphaTest > 0) u.alphaTest.value = mat.alphaTest; // three-vrm only copies the cut-off into the shader in vrm.update(), which we never call (we pose bones ourselves), so cut-out parts drew their hidden texels: black sleeves, dark rings round the eyes, black lace gaps
+      const face = /_FACE|_EYE|_Face_/.test(mat.name); // eyes, lashes, brows, mouth, face skin
+      for (const k of TEX_SLOTS) { const t = mat[k] as THREE.Texture | null | undefined; if (t?.isTexture) jobs.push(crisp(t, !face)); } // every texture it uses
+      if (mat.alphaTest > 0 && !mat.transparent && typeof mat.fragmentShader === "string" && (mat.fragmentShader as string).includes(ALPHA_CHUNK)) { // cut-out MToon part (hair strands, lace, collars, cuffs)
+        mat.fragmentShader = (mat.fragmentShader as string).replace(ALPHA_CHUNK, SOFT_ALPHA_TEST); // antialiased edge, same cut-off
+        mat.alphaToCoverage = true; mat.needsUpdate = true; // MSAA turns the soft edge into partial coverage
+      }
+    }
+  });
+  await Promise.all(jobs); // done before the first clone is drawn
 }
 
 // Face fill: the hall is lit from high above, so a head tilted toward a book

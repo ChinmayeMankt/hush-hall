@@ -17,6 +17,7 @@ import { vrmIdsOf } from "./models"; // MAX_VRM budget, shared with the prefetch
 import { WalkAvatar, LocalWalker, RemoteWalker, newInput, MOVE_KEYS, type WalkInput } from "./Walking"; // people on foot
 import type { Body } from "./walk"; // shared position object
 import type { WalkState } from "@/lib/presence/types"; // what my walk reports
+import { PerformanceMonitor } from "@react-three/drei"; // frame-rate watcher for the adaptive resolution
 
 
 // Props from HallView.
@@ -195,7 +196,7 @@ function Scene({ seatMap, myId, mySeat, reduced, rain, onPick, hot, setHovered, 
   );
 }
 
-// Canvas wrapper with low-GPU settings: capped pixel ratio, no shadows, low-power GPU hint.
+// Canvas wrapper with low-GPU settings: adaptive pixel ratio (1x-2x by frame rate), no shadows, low-power GPU hint.
 // Topic tags and the hover preview are plain DOM on top of the canvas.
 export default function Hall3D(props: Props) {
   const { seatMap, myId, mySeat, hoverSeat, walk, walkers, me } = props; // inputs
@@ -204,6 +205,12 @@ export default function Hall3D(props: Props) {
   const hot = hoverSeat ?? hovered; // forced hover wins (for previews)
   const firstPerson = !!mySeat; // seated camera
   const [zoom, setZoom] = useState(1); // overview zoom: 1 = whole hall, 0.45 = close to the desks
+  // Adaptive sharpness: draw at the screen's real pixel density (up to 2x, so
+  // faces, hair and outlines stay crisp on phones and retina laptops), and step
+  // down in 0.25 steps toward 1x if the frame rate drops, back up when it recovers.
+  // A device that keeps flip-flopping settles at 1x.
+  const maxDpr = typeof window !== "undefined" ? Math.min(2, Math.max(1, window.devicePixelRatio || 1)) : 1; // screen density, capped
+  const [dpr, setDpr] = useState(maxDpr); // current render resolution
   const nudge = (d: number) => setZoom((z) => Math.min(1.1, Math.max(0.45, +(z + d).toFixed(2)))); // clamp zoom steps
 
   // Walking: one input object and one body per walk (a new walk starts fresh at its spot).
@@ -264,11 +271,12 @@ export default function Hall3D(props: Props) {
   return (
     <div className={`hall3d ${walking ? "walking" : ""}`} onWheel={(e) => { if (walking) input.dist = Math.min(4.6, Math.max(1.8, input.dist + (e.deltaY > 0 ? 0.25 : -0.25))); else if (!firstPerson) nudge(e.deltaY > 0 ? 0.08 : -0.08); }} onPointerDown={onDown} onPointerMove={onDrag} onPointerUp={() => { drag.current = null; }}>
       <Canvas
-        dpr={[1, 1.5]} // cap resolution so phones stay cool
-        gl={{ antialias: true, powerPreference: "low-power" }} // prefer battery over peak speed
+        dpr={dpr} // adaptive (see above): sharp when the device keeps up, lighter when it doesn't
+        gl={{ antialias: true, powerPreference: "low-power" }} // MSAA edges (also smooths cut-out hair via alpha-to-coverage); prefer battery over peak speed
         camera={{ position: OVERVIEW.pos.toArray(), fov: OVERVIEW.fov, near: 0.05, far: 80 }} // start in overview
         frameloop={props.reduced && !walking && walkers.length === 0 ? "demand" : "always"} // nothing animates under reduced motion, so render on demand (walking always needs frames)
       >
+        <PerformanceMonitor flipflops={3} onDecline={() => setDpr((d) => Math.max(1, +(d - 0.25).toFixed(2)))} onIncline={() => setDpr((d) => Math.min(maxDpr, +(d + 0.25).toFixed(2)))} onFallback={() => setDpr(1)} /> {/* resolution follows the frame rate */}
         <Scene {...props} hot={hot} setHovered={setHovered} labels={labels} zoom={zoom} input={input} bodies={bodies} anchors={store.current.anchors} />
       </Canvas>
 
