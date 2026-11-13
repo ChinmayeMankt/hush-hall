@@ -1,7 +1,7 @@
 // Optional background sounds made with Web Audio (filtered noise, no audio files).
 // Off by default; the student picks one in the hall header.
 
-export type AmbientKind = "off" | "rain" | "waves" | "wind" | "fire" | "brown" | "white"; // background choices
+export type AmbientKind = "off" | "rain" | "waves" | "wind" | "fire" | "brown" | "white" | "music";
 
 export const AMBIENT_OPTIONS: { id: AmbientKind; label: string }[] = [
   { id: "off", label: "Off" },
@@ -11,116 +11,130 @@ export const AMBIENT_OPTIONS: { id: AmbientKind; label: string }[] = [
   { id: "fire", label: "Crackling fire" },
   { id: "brown", label: "Brown noise (deep)" },
   { id: "white", label: "White noise" },
+  { id: "music", label: "Warm Focus" },
 ];
 
-type Active = { ctx: AudioContext; master: GainNode; cleanup: () => void }; // one running ambience
-let active: Active | null = null; // what's playing now
+type Active = { ctx: AudioContext | null; master: GainNode | null; cleanup: () => void };
+let active: Active | null = null;
 
-// Looping noise: white = bright hiss, brown = soft low rumble.
 function noiseSource(ctx: AudioContext, kind: "white" | "brown") {
-  const len = ctx.sampleRate * 2; // 2 seconds, looped
-  const buf = ctx.createBuffer(1, len, ctx.sampleRate); // mono buffer
-  const data = buf.getChannelData(0); // samples
-  let last = 0; // brown-noise integrator
+  const len = ctx.sampleRate * 2;
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  let last = 0;
   for (let i = 0; i < len; i++) {
-    const w = Math.random() * 2 - 1; // white sample
-    if (kind === "white") data[i] = w * 0.5; // plain white noise
-    else { last = (last + 0.02 * w) / 1.02; data[i] = last * 3.5; } // brown noise
+    const w = Math.random() * 2 - 1;
+    if (kind === "white") data[i] = w * 0.5;
+    else { last = (last + 0.02 * w) / 1.02; data[i] = last * 3.5; }
   }
-  const src = ctx.createBufferSource(); // player
-  src.buffer = buf; // our noise
-  src.loop = true; // endless
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.loop = true;
   return src;
 }
 
-// Slow wobble on any AudioParam (waves swell, wind drifts).
 function wobble(ctx: AudioContext, param: AudioParam, hz: number, depth: number) {
-  const lfo = ctx.createOscillator(); // slow oscillator
-  const amount = ctx.createGain(); // how far it swings
-  lfo.frequency.value = hz; // speed
-  amount.gain.value = depth; // size
-  lfo.connect(amount).connect(param); // wobble the param
-  lfo.start(); // run
+  const lfo = ctx.createOscillator();
+  const amount = ctx.createGain();
+  lfo.frequency.value = hz;
+  amount.gain.value = depth;
+  lfo.connect(amount).connect(param);
+  lfo.start();
   return lfo;
 }
 
-// Stop whatever is playing, with a short fade-out.
 export function stopAmbient() {
-  if (!active) return; // nothing playing
-  const a = active; // keep reference for the timeout
-  active = null; // reset first so a new sound can start right away
-  a.master.gain.cancelScheduledValues(a.ctx.currentTime); // drop pending ramps
-  a.master.gain.setValueAtTime(Math.max(a.master.gain.value, 0.0001), a.ctx.currentTime); // start from here
-  a.master.gain.exponentialRampToValueAtTime(0.0001, a.ctx.currentTime + 1.2); // fade out
-  setTimeout(() => { a.cleanup(); void a.ctx.close(); }, 1300); // release audio after the fade
+  if (!active) return;
+  const a = active;
+  active = null;
+
+  if (a.cleanup) a.cleanup();
+  if (a.ctx && a.master) {
+    a.master.gain.cancelScheduledValues(a.ctx.currentTime);
+    a.master.gain.setValueAtTime(Math.max(a.master.gain.value, 0.0001), a.ctx.currentTime);
+    a.master.gain.exponentialRampToValueAtTime(0.0001, a.ctx.currentTime + 1.2);
+    setTimeout(() => { try { a.ctx!.close(); } catch {} }, 1300);
+  }
 }
 
-// Start a background sound (replaces any current one). Call from a click/tap so the browser allows it.
 export function startAmbient(kind: AmbientKind) {
-  stopAmbient(); // one at a time
-  if (kind === "off") return; // silent
-  const AC = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext; // Safari fallback
-  if (!AC) return; // unsupported
-  const ctx = new AC(); // audio engine
-  void ctx.resume(); // make sure it's running
-  const master = ctx.createGain(); // overall volume
-  master.gain.setValueAtTime(0.0001, ctx.currentTime); // start silent
-  master.connect(ctx.destination); // to speakers
-  const stoppers: (() => void)[] = []; // things to stop on cleanup
-  let target = 0.12; // loudness once faded in
+  stopAmbient();
+  if (kind === "off") return;
+
+  if (kind === "music") {
+    const audio = new Audio("/warm-focus.mp3");
+    audio.loop = true;
+    audio.volume = 0.35;
+    audio.play().catch(() => {});
+    active = {
+      ctx: null,
+      master: null,
+      cleanup: () => { audio.pause(); audio.src = ""; },
+    };
+    return;
+  }
+
+  const AC = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AC) return;
+  const ctx = new AC();
+  void ctx.resume();
+  const master = ctx.createGain();
+  master.gain.setValueAtTime(0.0001, ctx.currentTime);
+  master.connect(ctx.destination);
+  const stoppers: (() => void)[] = [];
+  let target = 0.12;
 
   if (kind === "rain") {
-    const src = noiseSource(ctx, "brown"); // soft patter
-    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 1200; // no hiss
+    const src = noiseSource(ctx, "brown");
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 1200;
     src.connect(lp).connect(master); src.start(); stoppers.push(() => src.stop());
   } else if (kind === "waves") {
-    const src = noiseSource(ctx, "brown"); // wash
-    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 700; // deep wash
-    const swell = ctx.createGain(); swell.gain.value = 0.55; // base level
-    const lfo = wobble(ctx, swell.gain, 0.11, 0.45); // slow in-and-out, about every 9 s
+    const src = noiseSource(ctx, "brown");
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 700;
+    const swell = ctx.createGain(); swell.gain.value = 0.55;
+    const lfo = wobble(ctx, swell.gain, 0.11, 0.45);
     src.connect(lp).connect(swell).connect(master); src.start(); stoppers.push(() => { src.stop(); lfo.stop(); });
     target = 0.2;
   } else if (kind === "wind") {
-    const src = noiseSource(ctx, "brown"); // body of the wind
-    const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 450; bp.Q.value = 0.8; // airy band
-    const lfo = wobble(ctx, bp.frequency, 0.07, 220); // pitch drifts up and down
+    const src = noiseSource(ctx, "brown");
+    const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 450; bp.Q.value = 0.8;
+    const lfo = wobble(ctx, bp.frequency, 0.07, 220);
     src.connect(bp).connect(master); src.start(); stoppers.push(() => { src.stop(); lfo.stop(); });
     target = 0.3;
   } else if (kind === "fire") {
-    const src = noiseSource(ctx, "brown"); // low roar
-    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 400; // warm
-    const bed = ctx.createGain(); bed.gain.value = 0.5; // quieter than crackles
+    const src = noiseSource(ctx, "brown");
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 400;
+    const bed = ctx.createGain(); bed.gain.value = 0.5;
     src.connect(lp).connect(bed).connect(master); src.start(); stoppers.push(() => src.stop());
-    let alive = true; // crackle loop switch
+    let alive = true;
     const crackle = () => {
-      if (!alive) return; // stopped
-      const dur = 0.015 + Math.random() * 0.04; // short pop
-      const b = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate); // pop buffer
-      const d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length); // fading burst
-      const s = ctx.createBufferSource(); s.buffer = b; // player
-      const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 1500 + Math.random() * 2000; // snap
-      const g = ctx.createGain(); g.gain.value = 0.25 + Math.random() * 0.5; // varied loudness
-      s.connect(hp).connect(g).connect(master); s.start(); // pop
-      setTimeout(crackle, 60 + Math.random() * 520); // next pop at a random time
+      if (!alive) return;
+      const dur = 0.015 + Math.random() * 0.04;
+      const b = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
+      const d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+      const s = ctx.createBufferSource(); s.buffer = b;
+      const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 1500 + Math.random() * 2000;
+      const g = ctx.createGain(); g.gain.value = 0.25 + Math.random() * 0.5;
+      s.connect(hp).connect(g).connect(master); s.start();
+      setTimeout(crackle, 60 + Math.random() * 520);
     };
     crackle(); stoppers.push(() => { alive = false; });
     target = 0.22;
   } else if (kind === "brown") {
-    const src = noiseSource(ctx, "brown"); // deep, steady
-    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 500; // very soft
+    const src = noiseSource(ctx, "brown");
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 500;
     src.connect(lp).connect(master); src.start(); stoppers.push(() => src.stop());
     target = 0.25;
   } else { // white
-    const src = noiseSource(ctx, "white"); // steady hiss
-    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 5000; // take the harsh edge off
+    const src = noiseSource(ctx, "white");
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 5000;
     src.connect(lp).connect(master); src.start(); stoppers.push(() => src.stop());
     target = 0.06;
   }
 
-  master.gain.exponentialRampToValueAtTime(target, ctx.currentTime + 3); // 3 s fade-in
-  active = { ctx, master, cleanup: () => stoppers.forEach((f) => { try { f(); } catch { /* already stopped */ } }) };
+  master.gain.exponentialRampToValueAtTime(target, ctx.currentTime + 3);
+  active = { ctx, master, cleanup: () => stoppers.forEach((f) => { try { f(); } catch {} }) };
 }
 
-// Old name kept so nothing else breaks.
 export const startRain = () => startAmbient("rain");
 export const stopRain = stopAmbient;

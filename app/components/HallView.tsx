@@ -73,7 +73,7 @@ export default function HallView({ hallId }: { hallId: string }) {
   const [webgl, setWebgl] = useState(false); // can this device draw 3D?
   const [view, setView] = useState<"3d" | "2d">("2d"); // which hall view is shown
   const [reduced, setReduced] = useState(false); // prefers-reduced-motion
-  const [ambient, setAmbient] = useState<AmbientKind>("off"); // background sound (off by default)
+  const [ambient, setAmbient] = useState<AmbientKind>("music"); // background sound (off by default)
   const rain = ambient === "rain"; // window rain only for the rain sound
   const [alertSound, setAlertSound] = useState<AlertSound>("ping"); // timer alert sound (remembered on this device)
   const [forceHover, setForceHover] = useState<string | null>(null); // ?hover=B1 for previews
