@@ -19,8 +19,8 @@ import { hasSupabase, accessToken } from "@/lib/backend/client"; // real backend
 import { loadMyRoom, type Room } from "@/lib/rooms"; // small study rooms
 import RoomPanel from "./RoomPanel"; // room members, leave/remove, voice
 import { ReportDialog } from "./Dialogs"; // report with a reason
-import { softChime } from "@/lib/chime"; // optional gentle sound
-import { startRain, stopRain } from "@/lib/ambient"; // optional rain ambience
+import { ALERT_OPTIONS, getAlertSound, playAlert, saveAlertSound, unlockAudioOnFirstGesture, type AlertSound } from "@/lib/chime"; // timer alert sounds
+import { AMBIENT_OPTIONS, startAmbient, stopAmbient, type AmbientKind } from "@/lib/ambient"; // background sounds
 import { hasWebGL, prefersReducedMotion } from "@/lib/env"; // capability checks
 import dynamic from "next/dynamic"; // lazy-load the 3D bundle
 import { prefetchModels } from "./three/models"; // tiny module: start character downloads before the 3D bundle arrives
@@ -73,7 +73,9 @@ export default function HallView({ hallId }: { hallId: string }) {
   const [webgl, setWebgl] = useState(false); // can this device draw 3D?
   const [view, setView] = useState<"3d" | "2d">("2d"); // which hall view is shown
   const [reduced, setReduced] = useState(false); // prefers-reduced-motion
-  const [rain, setRain] = useState(false); // rain ambience (off by default)
+  const [ambient, setAmbient] = useState<AmbientKind>("off"); // background sound (off by default)
+  const rain = ambient === "rain"; // window rain only for the rain sound
+  const [alertSound, setAlertSound] = useState<AlertSound>("ping"); // timer alert sound (remembered on this device)
   const [forceHover, setForceHover] = useState<string | null>(null); // ?hover=B1 for previews
 
   // ---- walking + full screen ----
@@ -131,9 +133,12 @@ export default function HallView({ hallId }: { hallId: string }) {
 
   // Rain ambience follows the toggle; always stops when leaving the hall.
   useEffect(() => {
-    if (rain) startRain(); else stopRain(); // follow toggle
-    return () => stopRain(); // stop on unmount
-  }, [rain]);
+    startAmbient(ambient); // follow the dropdown ("off" stops it)
+    return () => stopAmbient(); // stop on unmount
+  }, [ambient]);
+
+  // Load the saved timer sound for this device.
+  useEffect(() => { setAlertSound(getAlertSound()); }, []);
 
   // Switch between the 3D hall and the simple card view, and remember it.
   const chooseView = (v: "3d" | "2d") => {
@@ -291,19 +296,22 @@ export default function HallView({ hallId }: { hallId: string }) {
   // Focused minutes so far this sitting (sent with each heartbeat).
   focusNowRef.current = (focusedMs + (phase === "focus" ? Math.max(0, Math.min(now, phaseEndsAt ?? now) - phaseStart) * speed : 0)) / 60000; // banked + running
 
+  // Let the browser play the chime later: audio is blocked until the first tap/click.
+  useEffect(() => unlockAudioOnFirstGesture(), []);
+
   // Phase transitions when a timer runs out.
   useEffect(() => {
     if (!phaseEndsAt || now < phaseEndsAt) return; // still running
     if (phase === "focus") {
       bankFocus(); // save focus time
-      if (profile?.chime) softChime(); // optional soft chime
+      playAlert(); // timer sound (the student's pick; ping by default)
       startPhase("break", plan.b); // gentle break
     } else if (phase === "break") {
-      if (profile?.chime) softChime(); // optional soft chime
+      playAlert(); // timer sound
       setPhase("idle"); // wait for the student to choose the next round
       setPhaseEndsAt(null); // no countdown while idle
     }
-  }, [now, phaseEndsAt, phase, plan.b, profile?.chime, bankFocus, startPhase]);
+  }, [now, phaseEndsAt, phase, plan.b, bankFocus, startPhase]);
 
   // Release held requests once focus ends (break or idle).
   useEffect(() => {
@@ -474,12 +482,16 @@ export default function HallView({ hallId }: { hallId: string }) {
             Hide me from requests
           </span>
           <span className="toggle">
-            <input type="checkbox" checked={profile.chime} onChange={(e) => patchProfile({ chime: e.target.checked })} />
-            Soft chime
+            Timer sound
+            <select aria-label="Timer sound" value={alertSound} style={{ width: "auto" }} onChange={(e) => { const v = e.target.value as AlertSound; setAlertSound(v); saveAlertSound(v); playAlert(v); }}>
+              {ALERT_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
           </span>
           <span className="toggle">
-            <input type="checkbox" checked={rain} onChange={(e) => setRain(e.target.checked)} />
-            Soft rain
+            Background
+            <select aria-label="Background sound" value={ambient} style={{ width: "auto" }} onChange={(e) => setAmbient(e.target.value as AmbientKind)}>
+              {AMBIENT_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
           </span>
           {webgl && (
             <button className="ghost small" onClick={() => chooseView(view === "3d" ? "2d" : "3d")}>{view === "3d" ? "Simple view" : "3D hall"}</button>
