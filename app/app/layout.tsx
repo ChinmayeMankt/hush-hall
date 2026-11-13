@@ -1,6 +1,7 @@
 // Root layout: warm paper background, serif headings, no external fonts or trackers.
 import type { Metadata, Viewport } from "next"; // page metadata + viewport types
 import "./globals.css"; // all styling lives in one calm stylesheet
+import ThemeMusic from "@/components/ThemeMusic";
 
 // Title and description for the browser tab.
 export const metadata: Metadata = {
@@ -17,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
+        <ThemeMusic />
         {/* Thin header with the name only: no counters, no feeds */}
         <header className="topbar">
           <a href="/" className="brand">Hush Hall</a>
