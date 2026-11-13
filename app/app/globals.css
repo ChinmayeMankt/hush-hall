@@ -206,3 +206,17 @@ main:has(.hall3d-wrap) { max-width: none; padding: 10px 14px 14px; } /* the 3D h
 .move-pad .knob { position: absolute; left: 32px; top: 32px; width: 40px; height: 40px; border-radius: 50%; background: rgba(247, 237, 214, 0.9); border: 1px solid #c9b48a; pointer-events: none; } /* the thumb */
 .touch-only { display: none; } /* touch-screen wording hidden on desktop */
 @media (pointer: coarse) { .move-pad { display: block; } .hint3d { bottom: 130px; } .kb-only { display: none; } .touch-only { display: inline; } } /* touch screens: show the pad, lift the help line above it */
+
+/* Voice: who is on the call, mic on/off icon, and a soft "speaking" glow with moving bars */
+.voice-people { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.voice-person { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 7px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); font-size: 0.85rem; color: var(--ink); }
+.voice-person .voice-mic { display: inline-flex; color: var(--sage); }
+.voice-person.is-muted .voice-mic { color: var(--ink-soft); opacity: 0.7; }
+.voice-person.is-speaking { border-color: var(--sage); background: var(--sage-soft); box-shadow: 0 0 0 3px rgba(125, 154, 120, 0.3); font-weight: 600; }
+.voice-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
+.voice-bars i { display: block; width: 3px; height: 4px; border-radius: 2px; background: var(--sage); animation: voice-bar 0.7s ease-in-out infinite; }
+.voice-bars i:nth-child(2) { animation-delay: 0.15s; }
+.voice-bars i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes voice-bar { 0%, 100% { height: 3px; } 50% { height: 12px; } }
+@media (prefers-reduced-motion: reduce) { .voice-bars i { animation: none; height: 8px; } } /* still bars, no motion */
+.voice-live button svg { vertical-align: -3px; }
