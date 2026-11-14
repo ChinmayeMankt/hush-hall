@@ -381,3 +381,4 @@ function tintMesh(m: THREE.Mesh, tint: { skin?: THREE.Color; hair?: THREE.Color;
   };
   m.material = Array.isArray(m.material) ? m.material.map(swap) : swap(m.material); // surface (+ outline)
 }
+"" 
