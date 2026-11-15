@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"; // React hooks
 import Desk from "./Desk"; // one desk tile
+import { ambientMembers, ambientTarget } from "@/lib/ambientStudents"; // labeled, scripted study companions
 import { BreakCard, DeskCard, RecapDialog, SitDialog, FloorDialog, WardrobeDialog } from "./Dialogs"; // paper dialogs
 import { HALLS, ROWS, DESKS_PER_ROW, demoMembers, hallById } from "@/lib/halls"; // hall data
 import { getPresence, type JoinRequest, type Member, type Phase, type WalkState } from "@/lib/presence"; // presence layer
@@ -50,6 +51,7 @@ export default function HallView({ hallId }: { hallId: string }) {
   const [plan, setPlan] = useState({ f: 25, b: 5 }); // current Pomodoro rhythm
   const [speed, setSpeed] = useState(1); // demo time multiplier (?speed=60 => 1 s = 1 min)
   const [now, setNow] = useState(() => Date.now()); // clock tick
+  const [minute, setMinute] = useState(() => Math.floor(Date.now() / 60000)); // minute clock (ambient students change at most once a minute)
 
   // ---- hall state ----
   const [others, setOthers] = useState<Member[]>([]); // real people in other tabs
@@ -268,6 +270,12 @@ export default function HallView({ hallId }: { hallId: string }) {
     return () => { clearInterval(t); window.removeEventListener("pagehide", bye); }; // cleanup
   }, [sittingId, say]);
 
+  // Minute clock for the ambient students (runs whether I am seated or not).
+  useEffect(() => {
+    const t = setInterval(() => setMinute(Math.floor(Date.now() / 60000)), 20000); // check a few times a minute
+    return () => clearInterval(t); // cleanup
+  }, []);
+
   // 1-second clock tick while seated.
   useEffect(() => {
     if (!seat) return; // no clock while standing
@@ -321,15 +329,19 @@ export default function HallView({ hallId }: { hallId: string }) {
     }
   }, [phase, held]);
 
-  // Combine demo + real members into a seat map, skipping blocked people.
+  // Ambient students: scripted, labeled company (browser-only). Fewer show up as real people sit down.
+  const realSeated = useMemo(() => new Set(others.filter((m) => m.seat && !blocked.has(m.id)).map((m) => m.id)).size + (me?.seat ? 1 : 0), [others, blocked, me]); // real people at desks (me included)
+  const ambientStudents = useMemo(() => (hasSupabase ? ambientMembers(hallId, minute, ambientTarget(hallId, realSeated)) : []), [hallId, minute, realSeated]); // offline demo mode already has its own demo students
+
+  // Combine demo + real + ambient members into a seat map, skipping blocked people.
   const seatMap = useMemo(() => {
     const map = new Map<string, Member>(); // seat -> member
-    [...demos, ...others].forEach((m) => {
+    [...demos, ...others, ...ambientStudents].forEach((m) => { // real people come first, so they always win a desk
       if (m.seat && !blocked.has(m.id) && !map.has(m.seat)) map.set(m.seat, m); // first claim wins
     });
     if (me?.seat) map.set(me.seat, me); // my own desk always shows me
     return map; // ready for rendering
-  }, [demos, others, blocked, me]);
+  }, [demos, others, ambientStudents, blocked, me]);
 
   // Other people walking in the aisles (no desk), minus anyone I blocked.
   const walkersList = useMemo(() => others.filter((m) => m.walking && !m.seat && !blocked.has(m.id)), [others, blocked]); // on foot
@@ -361,6 +373,9 @@ export default function HallView({ hallId }: { hallId: string }) {
     if (!who) {
       if (seat) { say("You already have a desk. Stand up first to move."); return; } // one desk at a time
       setSitAt(s); // open sit dialog
+    } else if (who.isAmbient) {
+      if (seat) { say("You already have a desk. Stand up first to move."); return; } // one desk at a time
+      setSitAt(s); // an ambient student gives up their desk to a real person
     } else if (who.id !== profile?.id) setCardFor(who); // look at someone else's desk
   };
 
@@ -462,7 +477,8 @@ export default function HallView({ hallId }: { hallId: string }) {
   const left = phaseEndsAt ? phaseEndsAt - now : 0; // real ms left in phase
   const total = phaseEndsAt ? phaseEndsAt - phaseStart : 1; // real ms in phase
   const pct = phaseEndsAt ? Math.min(100, Math.max(0, ((now - phaseStart) / total) * 100)) : 0; // progress %
-  const liveCount = seatMap.size; // desks in use (incl. me)
+  const ambientCount = [...seatMap.values()].filter((m) => m.isAmbient).length; // scripted company on screen
+  const liveCount = seatMap.size - ambientCount; // real desks in use (incl. me); ambient students never count
   const walking = !!walk && !seat; // on foot now
   const canFs = typeof document !== "undefined" && !!document.fullscreenEnabled; // browser allows full screen (not iPhone Safari)
   const hint3d = `Tap a free desk to sit, or someone’s desk to see their topic.${hasSupabase ? "" : " Demo: open another tab to see live presence."}`; // shorter line over the 3D scene
@@ -474,7 +490,7 @@ export default function HallView({ hallId }: { hallId: string }) {
       <div className="hall-head">
         <div>
           <h1>{hall.name}</h1>
-          <div className="rule">{hall.rule} · {liveCount} of {ROWS.length * DESKS_PER_ROW} desks taken</div>
+          <div className="rule">{hall.rule} · {liveCount} of {ROWS.length * DESKS_PER_ROW} desks taken{ambientCount > 0 ? ` · ${ambientCount} ambient student${ambientCount === 1 ? "" : "s"} keeping the hall company (not real people)` : ""}</div>
         </div>
         <div className="row">
           <span className="toggle">

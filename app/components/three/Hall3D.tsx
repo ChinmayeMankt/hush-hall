@@ -293,7 +293,7 @@ export default function Hall3D(props: Props) {
         {tagged.map(([seat, m]) => (
           <div key={seat} id={`lbl-tag-${seat}`} className="lbl">
             <div className={`tag3d ${hot && hot !== seat ? "dim" : ""}`}>
-              <div className="tag3d-who">{m.avatar} {m.name}</div>
+              <div className="tag3d-who">{m.avatar} {m.name}{m.isAmbient && <span className="ambient-tag">ambient</span>}</div>
               <div className="tag3d-topic">{m.topic}</div>
             </div>
           </div>
@@ -307,9 +307,9 @@ export default function Hall3D(props: Props) {
           <div id="lbl-hover" className="lbl">
             {hm && hm.id !== myId ? (
               <div className="hover3d card-preview">
-                <div className="row" style={{ gap: 8 }}><span className="ava-sm" style={{ background: hm.color }}>{hm.avatar}</span><b>{hm.name}</b></div>
+                <div className="row" style={{ gap: 8 }}><span className="ava-sm" style={{ background: hm.color }}>{hm.avatar}</span><b>{hm.name}</b>{hm.isAmbient && <span className="ambient-tag">ambient</span>}</div>
                 <div className="small">Studying: {hm.topic}</div>
-                <div className="small muted">Tap for desk card</div>
+                <div className="small muted">{hm.isAmbient ? "Ambient student · tap to take this desk" : "Tap for desk card"}</div>
               </div>
             ) : (
               <div className="hover3d">{hm ? "Your desk" : `Desk ${hot} · vacant · tap to sit`}</div>
