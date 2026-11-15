@@ -221,7 +221,7 @@ main:has(.hall3d-wrap) { max-width: none; padding: 10px 14px 14px; } /* the 3D h
 @media (prefers-reduced-motion: reduce) { .voice-bars i { animation: none; height: 8px; } }
 .voice-live button svg { vertical-align: -3px; }
 
-<<<<<<< HEAD
+HEAD
 /* Private desk notes: a slightly taller paper dialog with a simple list. */
 .dialog.notes { width: min(520px, 100%); max-height: min(86vh, 720px); overflow: auto; }
 .note-list { list-style: none; margin: 12px 0 0; padding: 0; }
@@ -242,4 +242,4 @@ button.note-open { display: block; width: 100%; text-align: left; background: no
 .focusbar .spotify-desk { flex: 1 1 100%; }
 
 /* Ambient students: small label so nobody mistakes scripted company for a real person */
-.ambient-tag { display: inline-block; margin-left: 6px; padding: 0 6px; border: 1px dashed var(--line); border-radius: 999px; font-size: 0.68rem; font-weight: 500; letter-spacing: 0.02em; color: var(--ink-soft); background: transparent; vertical-align: 1px; }>>>>>>> 4c3b4473071ad5b3c823813293fa19d5fa2ae16b
+.ambient-tag { display: inline-block; margin-left: 6px; padding: 0 6px; border: 1px dashed var(--line); border-radius: 999px; font-size: 0.68rem; font-weight: 500; letter-spacing: 0.02em; color: var(--ink-soft); background: transparent; vertical-align: 1px; } 4c3b4473071ad5b3c823813293fa19d5fa2ae16b
