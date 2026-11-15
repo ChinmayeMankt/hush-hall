@@ -28,6 +28,9 @@ export const jointsOf = (f: (typeof FINGERS)[number]) => (f === "Thumb" ? ["Meta
 export const boneOf = (side: "left" | "right", f: (typeof FINGERS)[number], j: number) => `${side}${f}${jointsOf(f)[j]}` as VRMHumanBoneName; // e.g. "leftIndexProximal"
 const FINGER_BONES = (["left", "right"] as const).flatMap((s) => FINGERS.flatMap((f) => [0, 1, 2].map((j) => boneOf(s, f, j)))); // all 30 finger bones
 
+
+
+
 // Bones we pose. Everything else stays at rest.
 const BONES: VRMHumanBoneName[] = [
   "hips", "spine", "chest", "upperChest", "neck", "head",
@@ -36,6 +39,28 @@ const BONES: VRMHumanBoneName[] = [
   "leftEye", "rightEye", // eyes glance down at the book while the head stays a little higher
   ...FINGER_BONES, // all finger joints, so hands can rest relaxed instead of splayed
 ];
+
+
+
+function improveTextures(root: THREE.Object3D) {
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.material) return;
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const mat of mats) {
+      const m = mat as THREE.MeshStandardMaterial | any;
+      if (m.map) {
+        m.map.anisotropy = 8;
+        m.map.minFilter = THREE.LinearMipmapLinearFilter;
+        m.map.needsUpdate = true;
+      }
+      if (m.isMToonMaterial) {
+        m.shadeShift = 0.1;
+        m.shadeToony = 0.8;
+      }
+    }
+  });
+}
 
 // One loaded model, ready to clone.
 export interface Template {
@@ -101,6 +126,8 @@ function mergeByMaterial(root: THREE.Object3D) {
   }
 }
 
+
+
 // Load (once) and prepare a model.
 export function loadTemplate(file: string): Promise<Template> {
   const url = `/models/${file}`; // served from public/
@@ -117,6 +144,7 @@ export function loadTemplate(file: string): Promise<Template> {
       if (m.isMesh && Array.isArray(m.material) && /CLOTH|Body/.test(m.material[0].name)) { m.material = m.material[0]; m.geometry.clearGroups(); } // surface only
     });
     mergeByMaterial(gltf.scene); // fewer draw calls
+    improveTextures(gltf.scene);
     await sharpen(gltf.scene); // mipmaps + anisotropic filtering + smooth cut-out edges (shared by every clone)
     gltf.scene.traverse((o) => faceFill(o as THREE.Mesh)); // soft "desk lamp" fill on faces and hands (shared by every clone)
     const extras: THREE.Object3D[] = []; // spring-bone colliders + the normalized rig (we pose raw bones, no physics)

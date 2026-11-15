@@ -146,8 +146,9 @@ export default function VrmAvatar(props: Props) {
     if (!inst) return;
     const { bones: B, root, sign } = inst; // shortcuts
     const brk = phase === "break", foc = phase === "focus"; // which pose
-    const breath = reduced ? 0 : Math.sin((t + t0) * 1.3) * 0.012; // slow breathing
-    const lean = (brk ? -0.12 : foc ? 0.22 : 0.1) + breath; // spine lean (radians, + = forward); a little more upright than before so the face isn't hidden
+    // Slightly stronger but still calm breathing (spine + tiny upper-body lift)
+    const breath = reduced ? 0 : Math.sin((t + t0) * 1.1) * 0.018;
+    const lean = (brk ? -0.12 : foc ? 0.22 : 0.1) + breath;
     const set = (b: THREE.Object3D | undefined, x: number, y = 0, z = 0) => b?.rotation.set(x * sign, y, z * sign); // body-frame -> raw frame
     set(B.hips, 0); set(B.spine, lean * 0.5); set(B.chest, lean * 0.3); set(B.upperChest, lean * 0.2); // curved back
     const sway = reduced ? 0 : Math.sin((t + t0) * 0.4) * 0.04; // tiny head drift
@@ -159,6 +160,22 @@ export default function VrmAvatar(props: Props) {
     const beat = Math.floor((t + t0) / 2.2); // which "word group" we're on
     const hop = reduced || brk ? 0 : ((((k + beat * 7919) >>> 0) % 5) - 2) * 0.025; // -0.05..0.05 rad, stepped
     set(B.leftEye, gaze, hop); set(B.rightEye, gaze, hop); // both eyes look down together
+
+    // Subtle micro-movement so faces feel more alive
+    if (!reduced && B.head) {
+      const seed = k * 0.01;
+      B.head.rotation.y += Math.sin(t * 0.4 + seed) * 0.012;
+      B.head.rotation.x += Math.sin(t * 0.25 + seed) * 0.008;
+    }
+
+    // Light eye glance (only if eye bones exist)
+    if (!reduced && B.leftEye && B.rightEye) {
+      const seed = k * 0.01;
+      const glance = Math.sin(t * 0.7 + seed) * 0.12;
+      B.leftEye.rotation.y = glance;
+      B.rightEye.rotation.y = glance;
+    }
+
     root.updateWorldMatrix(true, true); // refresh before IK
     // World helpers: forward/right for this seat.
     const fx = (side: number, fwd: number, y: number) => V.b.set(position[0] + side * facing, y, position[2] + fwd * facing); // side>0 = student's left
