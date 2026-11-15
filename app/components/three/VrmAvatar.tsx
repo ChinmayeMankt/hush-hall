@@ -18,9 +18,11 @@ import { hash, modelFor } from "./models"; // shared character picker (also used
 import { parseLook } from "./looks"; // wardrobe choices
 
 // Indian-inclusive skin tints (multiplied over the VRoid skin texture; null = original).
-export const SKIN_TINTS = [null, "#f1d2bd", "#dcae8e", "#c08a68", "#a8775a"]; // fair -> brown
-// Natural hair tints (null = model's own colour).
-export const HAIR_TINTS = [null, null, "#3a2a22", "#2a1e18", "#5a4030"]; // keep some originals, darken others
+// Same range of depth as before, with the orange pulled out (a multiply over the warm VRoid skin
+// under amber light turned medium and brown tints saturated orange; these keep a natural, slightly rosy brown).
+export const SKIN_TINTS = [null, "#f3d8c8", "#dcb8a0", "#c4957a", "#ad8068"]; // fair -> brown
+// Natural hair tints (null = model's own colour). The darkest are a touch lighter so the highlight band still shows.
+export const HAIR_TINTS = [null, null, "#403027", "#34261f", "#5a4030"]; // keep some originals, darken others
 
 const TOP_Y = 0.76; // desk top height (matches Desks.tsx)
 const SEAT_Y = 0.52; // chair seat top
@@ -146,19 +148,42 @@ export default function VrmAvatar(props: Props) {
     if (!inst) return;
     const { bones: B, root, sign } = inst; // shortcuts
     const brk = phase === "break", foc = phase === "focus"; // which pose
-    const breath = reduced ? 0 : Math.sin((t + t0) * 1.3) * 0.012; // slow breathing
-    const lean = (brk ? -0.12 : foc ? 0.22 : 0.1) + breath; // spine lean (radians, + = forward); a little more upright than before so the face isn't hidden
+    // Slightly stronger but still calm breathing (spine + tiny upper-body lift)
+    const breath = reduced ? 0 : Math.sin((t + t0) * 1.1) * 0.018;
+    const lean = (brk ? -0.12 : foc ? 0.22 : 0.1) + breath;
     const set = (b: THREE.Object3D | undefined, x: number, y = 0, z = 0) => b?.rotation.set(x * sign, y, z * sign); // body-frame -> raw frame
     set(B.hips, 0); set(B.spine, lean * 0.5); set(B.chest, lean * 0.3); set(B.upperChest, lean * 0.2); // curved back
     const sway = reduced ? 0 : Math.sin((t + t0) * 0.4) * 0.04; // tiny head drift
-    set(B.neck, brk ? -0.1 : foc ? 0.06 : 0.03); set(B.head, brk ? -0.15 : foc ? 0.08 : 0.02, sway, 0); // head only slightly bowed, so the face (and eyes) stay visible from across the hall
-    const gaze = brk ? 0 : foc ? 0.12 : 0.05; // eyes glance down at the book instead of the whole head dropping (small, so the eyes stay open-looking)
+    // A glance up, every 26-44 s per student (each on their own clock): the head lifts a touch,
+    // the eyes rise to look across the room for about 2.5 s, the face softens, then back to the book.
+    // This is the "someone is really here" cue; still, small and slow, never during a break or with reduced motion.
+    const period = 26 + (k % 19); // seconds between glances
+    const gp = (t + t0) % period; // seconds into this cycle
+    const glance = reduced || brk ? 0 : gp < 2.6 ? Math.sin((gp / 2.6) * Math.PI) ** 2 : 0; // 0 -> 1 -> 0 smoothly
+    set(B.neck, brk ? -0.1 : foc ? 0.06 : 0.03); set(B.head, (brk ? -0.15 : foc ? 0.08 : 0.02) - glance * 0.07, sway + glance * 0.05 * (k % 2 ? 1 : -1), 0); // head only slightly bowed, so the face (and eyes) stay visible from across the hall
+    const gaze = (brk ? 0 : foc ? 0.12 : 0.05) * (1 - glance) - 0.03 * glance; // eyes glance down at the book instead of the whole head dropping (small, so the eyes stay open-looking); up and slightly past level during a glance
     // Tiny reading saccades: every couple of seconds the eyes hop a little along the
     // line (and now and then back to its start), like someone actually reading,
     // so a close-up never looks frozen. Small enough to stay calm.
     const beat = Math.floor((t + t0) / 2.2); // which "word group" we're on
     const hop = reduced || brk ? 0 : ((((k + beat * 7919) >>> 0) % 5) - 2) * 0.025; // -0.05..0.05 rad, stepped
     set(B.leftEye, gaze, hop); set(B.rightEye, gaze, hop); // both eyes look down together
+
+    // Subtle micro-movement so faces feel more alive
+    if (!reduced && B.head) {
+      const seed = k * 0.01;
+      B.head.rotation.y += Math.sin(t * 0.4 + seed) * 0.012;
+      B.head.rotation.x += Math.sin(t * 0.25 + seed) * 0.008;
+    }
+
+    // Light eye glance (only if eye bones exist)
+    if (!reduced && B.leftEye && B.rightEye) {
+      const seed = k * 0.01;
+      const glance = Math.sin(t * 0.7 + seed) * 0.12;
+      B.leftEye.rotation.y = glance;
+      B.rightEye.rotation.y = glance;
+    }
+
     root.updateWorldMatrix(true, true); // refresh before IK
     // World helpers: forward/right for this seat.
     const fx = (side: number, fwd: number, y: number) => V.b.set(position[0] + side * facing, y, position[2] + fwd * facing); // side>0 = student's left
@@ -203,7 +228,7 @@ export default function VrmAvatar(props: Props) {
       if (t > blinkAt.current) blink = Math.sin(((t - blinkAt.current) / 0.16) * Math.PI); // quick close/open
     }
     inst.setExpression("happy", brk ? 1 : 0); // ^^ happy stretch
-    inst.setExpression("relaxed", brk ? 0 : 0.15); // soft, calm face while studying (lighter, so the eyes don't look half-shut)
+    inst.setExpression("relaxed", brk ? 0 : 0.15 + glance * 0.2); // soft, calm face while studying (lighter, so the eyes don't look half-shut); a touch warmer during a glance
     inst.setExpression("blink", brk ? 0 : blink); // blink
   };
 

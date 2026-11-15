@@ -39,7 +39,8 @@ The seated students are **VRoid sample characters by pixiv Inc. (VRoid Project),
 - Vita's outfit layer is flattened onto a near-black fabric colour so she keeps the dark long-sleeved dress the hall has always shown (her original texture is a see-through bodysuit).
 - Morph targets trimmed to blink, happy, relaxed and "a".
 - Toon outlines kept only on hair and face.
-- Skin and hair colours tinted at runtime for Indian-inclusive looks.
+- Skin and hair colours tinted at runtime for Indian-inclusive looks (skin tints re-balanced 16 Nov 2026 to remove an orange cast under the amber room light; same range of depth).
+- Runtime material polish (`polish()` in `components/three/vrm.ts`, 16 Nov 2026): hair highlight band boosted, a faint cool edge light on hair, brighter irises, slightly stronger and softer face fill. These are shader settings on the existing materials, with no new textures, lights or draw calls.
 - The script is `app/scripts/optimize_vrm.py`. Originals are about 15–19 MB each; optimised files are about 2.6–3.7 MB (about 1.4–2 MB gzipped).
 
 ## Everything else (procedural)

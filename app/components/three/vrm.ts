@@ -28,6 +28,9 @@ export const jointsOf = (f: (typeof FINGERS)[number]) => (f === "Thumb" ? ["Meta
 export const boneOf = (side: "left" | "right", f: (typeof FINGERS)[number], j: number) => `${side}${f}${jointsOf(f)[j]}` as VRMHumanBoneName; // e.g. "leftIndexProximal"
 const FINGER_BONES = (["left", "right"] as const).flatMap((s) => FINGERS.flatMap((f) => [0, 1, 2].map((j) => boneOf(s, f, j)))); // all 30 finger bones
 
+
+
+
 // Bones we pose. Everything else stays at rest.
 const BONES: VRMHumanBoneName[] = [
   "hips", "spine", "chest", "upperChest", "neck", "head",
@@ -36,6 +39,28 @@ const BONES: VRMHumanBoneName[] = [
   "leftEye", "rightEye", // eyes glance down at the book while the head stays a little higher
   ...FINGER_BONES, // all finger joints, so hands can rest relaxed instead of splayed
 ];
+
+
+
+function improveTextures(root: THREE.Object3D) {
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.material) return;
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const mat of mats) {
+      const m = mat as THREE.MeshStandardMaterial | any;
+      if (m.map) {
+        m.map.anisotropy = 8;
+        m.map.minFilter = THREE.LinearMipmapLinearFilter;
+        m.map.needsUpdate = true;
+      }
+      if (m.isMToonMaterial) {
+        m.shadeShift = 0.1;
+        m.shadeToony = 0.8;
+      }
+    }
+  });
+}
 
 // One loaded model, ready to clone.
 export interface Template {
@@ -101,6 +126,8 @@ function mergeByMaterial(root: THREE.Object3D) {
   }
 }
 
+
+
 // Load (once) and prepare a model.
 export function loadTemplate(file: string): Promise<Template> {
   const url = `/models/${file}`; // served from public/
@@ -117,8 +144,10 @@ export function loadTemplate(file: string): Promise<Template> {
       if (m.isMesh && Array.isArray(m.material) && /CLOTH|Body/.test(m.material[0].name)) { m.material = m.material[0]; m.geometry.clearGroups(); } // surface only
     });
     mergeByMaterial(gltf.scene); // fewer draw calls
+    improveTextures(gltf.scene);
     await sharpen(gltf.scene); // mipmaps + anisotropic filtering + smooth cut-out edges (shared by every clone)
     gltf.scene.traverse((o) => faceFill(o as THREE.Mesh)); // soft "desk lamp" fill on faces and hands (shared by every clone)
+    gltf.scene.traverse((o) => polish(o as THREE.Mesh)); // portrait polish: hair sheen + edge light, brighter irises (shared by every clone)
     const extras: THREE.Object3D[] = []; // spring-bone colliders + the normalized rig (we pose raw bones, no physics)
     gltf.scene.traverse((o) => { if ("colliderMatrix" in o || o === vrm.humanoid.normalizedHumanBonesRoot) extras.push(o); }); // can't be cloned safely
     extras.forEach((o) => o.removeFromParent()); // drop them
@@ -302,7 +331,7 @@ async function sharpen(scene: THREE.Object3D) {
 // give face and hand materials a faint warm glow from their own texture, as if
 // the desk lamp were bouncing light up off the open book, and lift their shadow
 // colour so the shaded side of the face still shows its features.
-const FILL = new THREE.Color("#ffd9b0"); // warm lamp-bounce colour
+const FILL = new THREE.Color("#ffe0c6"); // warm lamp-bounce colour (a touch softer and pinker than before, so skin glows instead of turning orange under the amber room light)
 type Toon = THREE.Material & { color?: THREE.Color; map?: THREE.Texture | null; emissive?: THREE.Color; emissiveMap?: THREE.Texture | null; shadeColorFactor?: THREE.Color; shadeMultiplyTexture?: THREE.Texture | null; rimMultiplyTexture?: THREE.Texture | null }; // MToon fields we touch
 function faceFill(m: THREE.Mesh) {
   if (!m.isMesh) return; // only meshes
@@ -311,12 +340,45 @@ function faceFill(m: THREE.Mesh) {
     const face = /_Face_|_EYE|_FACE/.test(mat.name); // face skin, eyes, brows, lashes, mouth
     const skin = /Body_00_SKIN/.test(mat.name); // body skin (shows on hands)
     if ((!face && !skin) || !mat.color || !mat.emissive || mat.userData.filled) continue; // only skin/face MToon, once
-    const glow = face ? 0.22 : 0.12; // faces get more fill than hands
+    const glow = face ? 0.3 : 0.15; // faces get more fill than hands (face was 0.22: features sank into the dim hall at normal viewing distance)
     if (mat.map) { mat.emissiveMap = mat.map; mat.emissive.copy(FILL).multiplyScalar(glow); } // glow follows the painted texture, so eyes stay dark and skin stays skin-coloured
     else mat.emissive.copy(mat.color).multiply(FILL).multiplyScalar(glow); // untextured fallback: glow in the base colour
-    mat.shadeColorFactor?.lerp(mat.color, face ? 0.45 : 0.25); // shaded side moves part-way toward the lit colour (softer shadow, same mood)
+    mat.shadeColorFactor?.lerp(mat.color, face ? 0.55 : 0.3); // shaded side moves part-way toward the lit colour (softer shadow, same mood; a bowed head keeps a readable, even face)
     mat.userData.filled = true; // don't apply twice (outline pass can share the material)
     mat.needsUpdate = true; // recompile with the emissive map
+  }
+}
+
+// Portrait polish. Two things make a dark-haired anime face read as "attractive"
+// at the distance people actually see each other (about 2-4 m): hair that shows
+// its shape instead of one black blob, and eyes that look bright and alive.
+//  - Hair: the VRoid matcap (the painted highlight band) is boosted, and a faint cool
+//    edge light (MToon's parametric rim) separates the head from the dark wall.
+//  - Irises: a stronger glow from their own texture, so the colour reads as a clear
+//    gem-like iris with its catch-light, not a dark smudge under the fringe.
+// All of it is material settings on the shared template: no extra lights, draw calls or textures.
+const HAIR_SHEEN = 1.7; // matcap highlight multiplier (1 = as exported)
+const HAIR_EDGE = new THREE.Color("#8da2d4").multiplyScalar(0.3); // cool edge light on the hair rim
+const IRIS_GLOW = 0.55; // iris glow (faceFill gives eyes 0.3; this is on top for the iris only)
+type Polished = Toon & { isOutline?: boolean; matcapFactor?: THREE.Color; matcapTexture?: THREE.Texture | null; parametricRimColorFactor?: THREE.Color; parametricRimFresnelPowerFactor?: number; parametricRimLiftFactor?: number; rimLightingMixFactor?: number }; // MToon fields we touch
+function polish(m: THREE.Mesh) {
+  if (!m.isMesh) return; // only meshes
+  const mats = (Array.isArray(m.material) ? m.material : [m.material]) as Polished[]; // surface (+ outline)
+  for (const mat of mats) {
+    if (mat.isOutline || mat.userData.polished) continue; // outline pass has no shading; once per material
+    if (/_HAIR/.test(mat.name)) { // hair strands, fringe, back hair
+      if (mat.matcapTexture && mat.matcapFactor) mat.matcapFactor.multiplyScalar(HAIR_SHEEN); // stronger highlight band
+      if (mat.parametricRimColorFactor) { // cool edge light
+        mat.parametricRimColorFactor.copy(HAIR_EDGE);
+        mat.parametricRimFresnelPowerFactor = 4; // only near the silhouette
+        mat.parametricRimLiftFactor = 0.05; // starts right at the edge
+        mat.rimLightingMixFactor = 0.6; // partly follows the scene light, so it never glows in the dark
+      }
+      mat.userData.polished = true; mat.needsUpdate = true; // done
+    } else if (/_EyeIris_/.test(mat.name) && mat.emissive && mat.map) { // the coloured part of the eye
+      mat.emissiveMap = mat.map; mat.emissive.copy(FILL).multiplyScalar(IRIS_GLOW); // glow follows the painted iris
+      mat.userData.polished = true; mat.needsUpdate = true; // done
+    }
   }
 }
 
@@ -381,3 +443,4 @@ function tintMesh(m: THREE.Mesh, tint: { skin?: THREE.Color; hair?: THREE.Color;
   };
   m.material = Array.isArray(m.material) ? m.material.map(swap) : swap(m.material); // surface (+ outline)
 }
+"" 
