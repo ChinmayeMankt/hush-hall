@@ -9,7 +9,7 @@
 import type { Member } from "./presence/types"; // member shape
 import { ALL_SEATS, LAMP_COLORS } from "./halls"; // desks and lamp colours
 
-// A pool of 100 first names (Indian and Japanese/anime-style). Ambient students draw from it and change names over time,
+// A pool of 160 first names (Indian, Japanese/anime-style, UK, US and Canadian). Ambient students draw from it and change names over time,
 // so every hall looks lived in. These are made-up companions, so no surnames and no real people.
 const NAMES = [
   // Indian
@@ -24,7 +24,16 @@ const NAMES = [
   "Mio", "Sana", "Nana", "Emi", "Ayumi", "Kana", "Rei", "Asuka", "Misaki", "Chihiro",
   "Itsuki", "Ryo", "Hikari", "Satoshi", "Taro", "Yuto", "Kazuki", "Minato", "Tsubasa", "Shun",
   "Noa", "Kohaku", "Suzu", "Mizuki", "Hotaru", "Akari", "Natsu", "Fuyu", "Kai", "Leo",
-]; // 100 names
+  // UK
+  "Oliver", "George", "Harry", "Jack", "Charlie", "Alfie", "Archie", "Freddie", "Amelia", "Olivia",
+  "Isla", "Poppy", "Freya", "Ella", "Florence", "Evie", "Thomas", "Callum", "Imogen", "Grace",
+  // US
+  "Liam", "Mason", "Ethan", "Logan", "Tyler", "Caleb", "Emma", "Ava", "Sophia", "Harper",
+  "Chloe", "Madison", "Lucas", "Nora", "Hannah", "Jordan", "Wyatt", "Savannah", "Riley", "Jake",
+  // Canada
+  "Hudson", "Carter", "Owen", "Quinn", "Avery", "Rowan", "Parker", "Emery", "Brooke", "Jaxon",
+  "Fraser", "Mackenzie", "Dawson", "Piper", "Reid", "Callie", "Declan", "Tessa", "Gavin", "Mallory",
+]; // 160 names
 
 // Soft emoji avatars and varied study topics (kept general; nothing about real courses or colleges).
 const AVATARS = ["🦉", "🌿", "🐢", "📚", "☕", "🌙", "🪴", "🦊", "🐼", "🍵", "🌸", "🐱", "🦋", "🍃", "⭐", "🐧"];
@@ -64,7 +73,7 @@ export function ambientMembers(hallId: string, epochMinute: number, count: numbe
     // Away for a while now and then (about 1 slot in 5), so the hall changes through the day.
     if (hash(`${hallId}|away|${i}|${slot}`) % 5 === 0) continue; // this student is on a longer break
     const block = Math.floor(slot / 4); // each "sitting" lasts about 2 hours, then a new student takes the desk
-    let ni = hash(`${hallId}|name|${i}|${block}`) % NAMES.length; // name from the 100-name carousel
+    let ni = hash(`${hallId}|name|${i}|${block}`) % NAMES.length; // name from the 160-name carousel
     for (let tries = 0; tries < NAMES.length && names.has(NAMES[ni]); tries++) ni = (ni + 1) % NAMES.length; // no two students share a name
     names.add(NAMES[ni]); // reserve it
     let idx = hash(`${hallId}|seat|${i}|${block}`) % ALL_SEATS.length; // preferred desk

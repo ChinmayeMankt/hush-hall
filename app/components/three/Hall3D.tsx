@@ -293,7 +293,7 @@ export default function Hall3D(props: Props) {
         {tagged.map(([seat, m]) => (
           <div key={seat} id={`lbl-tag-${seat}`} className="lbl">
             <div className={`tag3d ${hot && hot !== seat ? "dim" : ""}`}>
-              <div className="tag3d-who">{m.avatar} {m.name}{m.isAmbient && <span className="ambient-tag">ambient</span>}</div>
+              <div className="tag3d-who">{m.avatar} {m.name}</div>
               <div className="tag3d-topic">{m.topic}</div>
             </div>
           </div>

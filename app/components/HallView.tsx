@@ -490,7 +490,7 @@ export default function HallView({ hallId }: { hallId: string }) {
       <div className="hall-head">
         <div>
           <h1>{hall.name}</h1>
-          <div className="rule">{hall.rule} · {liveCount} of {ROWS.length * DESKS_PER_ROW} desks taken{ambientCount > 0 ? ` · ${ambientCount} ambient student${ambientCount === 1 ? "" : "s"} keeping the hall company (not real people)` : ""}</div>
+          <div className="rule">{hall.rule} · {liveCount} of {ROWS.length * DESKS_PER_ROW} desks taken{ambientCount > 0 && <span className="muted small"> · {ambientCount} quiet companion{ambientCount === 1 ? "" : "s"}, not real people</span>}</div>
         </div>
         <div className="row">
           <span className="toggle">

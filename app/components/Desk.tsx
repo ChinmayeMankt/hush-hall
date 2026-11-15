@@ -38,7 +38,6 @@ export default function Desk({ seat, occupant, isMine, isUsual, onClick }: Props
       <span className="who">
         <span className="ava" style={{ background: occupant.color }}>{occupant.avatar}</span>
         {isMine ? "You" : occupant.name}
-        {occupant.isAmbient && <span className="ambient-tag">ambient</span>}
       </span>
       <span className="state"><span className={`lamp ${occupant.phase}`} />{STATUS[occupant.phase]}</span>
       <span className="topic" title={occupant.topic}>{occupant.topic || "…"}</span>
