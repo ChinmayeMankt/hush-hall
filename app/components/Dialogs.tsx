@@ -2,10 +2,11 @@
 
 // Small paper dialogs used in the hall: sit down, desk card, recap, break.
 
-import { useState } from "react"; // local form state
+import { useEffect, useState } from "react"; // local form and load state
 import type { Member } from "@/lib/presence/types"; // member shape
 import { REPORT_REASONS, type ReportReason } from "@/lib/account"; // report reasons (same list as the database)
 import { TOP_LABELS, type Look } from "./three/looks"; // wardrobe choices (no three.js import)
+import { formatStudyHours } from "@/lib/studyStats"; // this-week hours on the card
 
 // ---- Sit-down dialog: step 2 of the ritual (sit -> topic -> timer -> recap) ----
 export function SitDialog(props: {
@@ -63,13 +64,16 @@ export function DeskCard(props: {
         <div className="row">
           <span style={{ fontSize: "2rem", background: m.color, borderRadius: "50%", width: 52, height: 52, display: "grid", placeItems: "center" }}>{m.avatar}</span>
           <div>
-            {/* Desk card shows only nickname, avatar and current topic: no seat history, college or course */}
+            {/* Desk card: nickname, avatar, topic, and (if they chose) this week's hours. No seat history, college or course. */}
             <h2 style={{ margin: 0 }}>{m.name}</h2>
             <div className="muted small">Studying: {m.topic}</div>
+            {typeof m.weekMinutes === "number" && m.weekMinutes > 0 && <div className="muted small">{formatStudyHours(m.weekMinutes)} this week</div>}
           </div>
         </div>
-        {/* Join request: quiet, one short note, receiver decides */}
-        {props.canRequest ? (
+        {/* Ambient students are scripted company, not real people: no requests, blocks or reports */}
+        {m.isAmbient ? (
+          <p className="muted small" style={{ marginTop: 12 }}>Ambient student. Not a real person — just quiet company so the hall doesn’t feel empty. They leave a desk as soon as a real person wants it.</p>
+        ) : props.canRequest ? (
           <>
             <label htmlFor="note">Ask to study together in a small room (optional note)</label>
             <input id="note" type="text" maxLength={80} placeholder="e.g. Also doing enzyme kinetics, want to sync breaks?" value={note} onChange={(e) => setNote(e.target.value)} />
@@ -78,10 +82,10 @@ export function DeskCard(props: {
           <p className="muted small" style={{ marginTop: 12 }}>{props.reason}</p>
         )}
         <div className="actions">
-          <button type="button" className="ghost small" onClick={props.onReport}>Report</button>
-          <button type="button" className="ghost small" onClick={props.onBlock}>Block</button>
+          {!m.isAmbient && <button type="button" className="ghost small" onClick={props.onReport}>Report</button>}
+          {!m.isAmbient && <button type="button" className="ghost small" onClick={props.onBlock}>Block</button>}
           <button type="button" className="ghost" onClick={props.onClose}>Close</button>
-          {props.canRequest && <button type="button" className="sage" onClick={() => props.onRequest(note)}>Send request</button>}
+          {props.canRequest && !m.isAmbient && <button type="button" className="sage" onClick={() => props.onRequest(note)}>Send request</button>}
         </div>
       </div>
     </div>

@@ -8,6 +8,7 @@ import { loadAccount, loadHistory, saveProfile, signOut } from "@/lib/account"; 
 import { callApi, hasSupabase } from "@/lib/backend/client"; // delete route
 import { showUpSummary, weekSummary, type Profile, type Sitting } from "@/lib/profile"; // summaries
 import { hallById } from "@/lib/halls"; // hall names
+import { ALERT_OPTIONS, getAlertSound, playAlert, saveAlertSound, type AlertSound } from "@/lib/chime"; // timer alert sounds
 
 export default function Me() {
   const [profile, setProfile] = useState<Profile | null>(null); // my card
@@ -15,6 +16,8 @@ export default function Me() {
   const [confirm, setConfirm] = useState(""); // typed DELETE
   const [msg, setMsg] = useState(""); // status line
   const [loadFailed, setLoadFailed] = useState(false); // could not load my log
+  const [alertSound, setAlertSound] = useState<AlertSound>("ping"); // timer sound (saved on this device)
+  useEffect(() => { setAlertSound(getAlertSound()); }, []); // load saved choice
   // Account deletion is two calm steps: open the panel, then type DELETE and confirm.
   const [delOpen, setDelOpen] = useState(false); // second step shown?
   const [delBusy, setDelBusy] = useState(false); // request in flight
@@ -64,7 +67,11 @@ export default function Me() {
             <option value="50/10">50 min focus · 10 min break</option>
             <option value="15/3">15 min focus · 3 min break</option>
           </select>
-          <span className="toggle" style={{ marginTop: 10 }}><input type="checkbox" checked={profile.chime} onChange={(e) => patch({ chime: e.target.checked })} /> Soft chime when a phase ends</span>
+          <label htmlFor="alertsound" style={{ marginTop: 10 }}>Timer sound (when a focus or break ends)</label>
+          <select id="alertsound" value={alertSound} onChange={(e) => { const v = e.target.value as AlertSound; setAlertSound(v); saveAlertSound(v); playAlert(v); }}>
+            {ALERT_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </select>
+          <span className="small muted">Saved on this device.</span>
           <span className="toggle"><input type="checkbox" checked={profile.hideFromRequests} onChange={(e) => patch({ hideFromRequests: e.target.checked })} /> Hide me from study-room requests</span>
           {msg && <p className="small muted">{msg}</p>}
           {hasSupabase && <div className="actions"><button className="ghost small" onClick={async () => { await signOut(); window.location.href = "/"; }}>Sign out</button></div>}
@@ -84,7 +91,7 @@ export default function Me() {
       {hasSupabase && (
         <section className="card" id="delete-account" style={{ marginTop: 16 }}>
           <h2>Delete account</h2>
-          <p className="small muted">This permanently deletes your Hush Hall account: your login and email address, profile and settings, sittings and recaps, usual desks, walking position, blocks, requests, study-room memberships, notices, and reports you filed or that were filed about you. It can’t be undone. <a href="/privacy#delete">Privacy policy</a></p>
+          <p className="small muted">This permanently deletes your Hush Hall account: your login and email address, profile and settings, sittings and recaps, desk notes and any share links, timetable, usual desks, walking position, blocks, requests, study-room memberships, notices, and reports you filed or that were filed about you. It can’t be undone. <a href="/privacy#delete">Privacy policy</a></p>
           {!delOpen ? (
             <div className="actions"><button className="ghost" onClick={() => setDelOpen(true)}>Delete my account…</button></div>
           ) : (

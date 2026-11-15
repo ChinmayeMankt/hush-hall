@@ -7,7 +7,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"; // React hooks
 import Desk from "./Desk"; // one desk tile
+import { ambientMembers, ambientTarget } from "@/lib/ambientStudents"; // labeled, scripted study companions
 import { BreakCard, DeskCard, RecapDialog, SitDialog, FloorDialog, WardrobeDialog } from "./Dialogs"; // paper dialogs
+import { NotesDialog } from "./NotesDialog"; // private desk notes
+import { StatsDialog } from "./StatsDialog"; // today / this-week hours
+import { TimetableDialog } from "./TimetableDialog"; // private weekly plan
+import { SpotifyPlayer } from "./SpotifyPlayer"; // optional Spotify embed
 import { HALLS, ROWS, DESKS_PER_ROW, demoMembers, hallById } from "@/lib/halls"; // hall data
 import { getPresence, type JoinRequest, type Member, type Phase, type WalkState } from "@/lib/presence"; // presence layer
 import { ENTRANCE, standSpot } from "./three/walk"; // where a walk starts (tiny module: no three.js)
@@ -19,8 +24,8 @@ import { hasSupabase, accessToken } from "@/lib/backend/client"; // real backend
 import { loadMyRoom, type Room } from "@/lib/rooms"; // small study rooms
 import RoomPanel from "./RoomPanel"; // room members, leave/remove, voice
 import { ReportDialog } from "./Dialogs"; // report with a reason
-import { softChime } from "@/lib/chime"; // optional gentle sound
-import { startRain, stopRain } from "@/lib/ambient"; // optional rain ambience
+import { ALERT_OPTIONS, getAlertSound, playAlert, saveAlertSound, unlockAudioOnFirstGesture, type AlertSound } from "@/lib/chime"; // timer alert sounds
+import { AMBIENT_OPTIONS, startAmbient, stopAmbient, type AmbientKind } from "@/lib/ambient"; // background sounds
 import { hasWebGL, prefersReducedMotion } from "@/lib/env"; // capability checks
 import dynamic from "next/dynamic"; // lazy-load the 3D bundle
 import { prefetchModels } from "./three/models"; // tiny module: start character downloads before the 3D bundle arrives
@@ -50,6 +55,7 @@ export default function HallView({ hallId }: { hallId: string }) {
   const [plan, setPlan] = useState({ f: 25, b: 5 }); // current Pomodoro rhythm
   const [speed, setSpeed] = useState(1); // demo time multiplier (?speed=60 => 1 s = 1 min)
   const [now, setNow] = useState(() => Date.now()); // clock tick
+  const [minute, setMinute] = useState(() => Math.floor(Date.now() / 60000)); // minute clock (ambient students change at most once a minute)
 
   // ---- hall state ----
   const [others, setOthers] = useState<Member[]>([]); // real people in other tabs
@@ -73,7 +79,9 @@ export default function HallView({ hallId }: { hallId: string }) {
   const [webgl, setWebgl] = useState(false); // can this device draw 3D?
   const [view, setView] = useState<"3d" | "2d">("2d"); // which hall view is shown
   const [reduced, setReduced] = useState(false); // prefers-reduced-motion
-  const [rain, setRain] = useState(false); // rain ambience (off by default)
+  const [ambient, setAmbient] = useState<AmbientKind>("music"); // background sound (off by default)
+  const rain = ambient === "rain"; // window rain only for the rain sound
+  const [alertSound, setAlertSound] = useState<AlertSound>("ping"); // timer alert sound (remembered on this device)
   const [forceHover, setForceHover] = useState<string | null>(null); // ?hover=B1 for previews
 
   // ---- walking + full screen ----
@@ -89,6 +97,9 @@ export default function HallView({ hallId }: { hallId: string }) {
   const [lastFloorTopic, setLastFloorTopic] = useState(""); // offered again next time
   const [quick, setQuick] = useState(false); // touch: "Quicker" walk toggle (Shift does it on a keyboard)
   const [wardrobe, setWardrobe] = useState(false); // wardrobe dialog open
+  const [notesOpen, setNotesOpen] = useState(false); // private desk-notes panel
+  const [statsOpen, setStatsOpen] = useState(false); // study hours panel
+  const [planOpen, setPlanOpen] = useState(false); // timetable panel
 
   const phaseRef = useRef(phase); // latest phase for presence callbacks
   phaseRef.current = phase; // keep it current every render
@@ -131,9 +142,12 @@ export default function HallView({ hallId }: { hallId: string }) {
 
   // Rain ambience follows the toggle; always stops when leaving the hall.
   useEffect(() => {
-    if (rain) startRain(); else stopRain(); // follow toggle
-    return () => stopRain(); // stop on unmount
-  }, [rain]);
+    startAmbient(ambient); // follow the dropdown ("off" stops it)
+    return () => stopAmbient(); // stop on unmount
+  }, [ambient]);
+
+  // Load the saved timer sound for this device.
+  useEffect(() => { setAlertSound(getAlertSound()); }, []);
 
   // Switch between the 3D hall and the simple card view, and remember it.
   const chooseView = (v: "3d" | "2d") => {
@@ -263,6 +277,12 @@ export default function HallView({ hallId }: { hallId: string }) {
     return () => { clearInterval(t); window.removeEventListener("pagehide", bye); }; // cleanup
   }, [sittingId, say]);
 
+  // Minute clock for the ambient students (runs whether I am seated or not).
+  useEffect(() => {
+    const t = setInterval(() => setMinute(Math.floor(Date.now() / 60000)), 20000); // check a few times a minute
+    return () => clearInterval(t); // cleanup
+  }, []);
+
   // 1-second clock tick while seated.
   useEffect(() => {
     if (!seat) return; // no clock while standing
@@ -291,19 +311,22 @@ export default function HallView({ hallId }: { hallId: string }) {
   // Focused minutes so far this sitting (sent with each heartbeat).
   focusNowRef.current = (focusedMs + (phase === "focus" ? Math.max(0, Math.min(now, phaseEndsAt ?? now) - phaseStart) * speed : 0)) / 60000; // banked + running
 
+  // Let the browser play the chime later: audio is blocked until the first tap/click.
+  useEffect(() => unlockAudioOnFirstGesture(), []);
+
   // Phase transitions when a timer runs out.
   useEffect(() => {
     if (!phaseEndsAt || now < phaseEndsAt) return; // still running
     if (phase === "focus") {
       bankFocus(); // save focus time
-      if (profile?.chime) softChime(); // optional soft chime
+      playAlert(); // timer sound (the student's pick; ping by default)
       startPhase("break", plan.b); // gentle break
     } else if (phase === "break") {
-      if (profile?.chime) softChime(); // optional soft chime
+      playAlert(); // timer sound
       setPhase("idle"); // wait for the student to choose the next round
       setPhaseEndsAt(null); // no countdown while idle
     }
-  }, [now, phaseEndsAt, phase, plan.b, profile?.chime, bankFocus, startPhase]);
+  }, [now, phaseEndsAt, phase, plan.b, bankFocus, startPhase]);
 
   // Release held requests once focus ends (break or idle).
   useEffect(() => {
@@ -313,15 +336,19 @@ export default function HallView({ hallId }: { hallId: string }) {
     }
   }, [phase, held]);
 
-  // Combine demo + real members into a seat map, skipping blocked people.
+  // Ambient students: scripted, labeled company (browser-only). Fewer show up as real people sit down.
+  const realSeated = useMemo(() => new Set(others.filter((m) => m.seat && !blocked.has(m.id)).map((m) => m.id)).size + (me?.seat ? 1 : 0), [others, blocked, me]); // real people at desks (me included)
+  const ambientStudents = useMemo(() => (hasSupabase ? ambientMembers(hallId, minute, ambientTarget(hallId, realSeated)) : []), [hallId, minute, realSeated]); // offline demo mode already has its own demo students
+
+  // Combine demo + real + ambient members into a seat map, skipping blocked people.
   const seatMap = useMemo(() => {
     const map = new Map<string, Member>(); // seat -> member
-    [...demos, ...others].forEach((m) => {
+    [...demos, ...others, ...ambientStudents].forEach((m) => { // real people come first, so they always win a desk
       if (m.seat && !blocked.has(m.id) && !map.has(m.seat)) map.set(m.seat, m); // first claim wins
     });
     if (me?.seat) map.set(me.seat, me); // my own desk always shows me
     return map; // ready for rendering
-  }, [demos, others, blocked, me]);
+  }, [demos, others, ambientStudents, blocked, me]);
 
   // Other people walking in the aisles (no desk), minus anyone I blocked.
   const walkersList = useMemo(() => others.filter((m) => m.walking && !m.seat && !blocked.has(m.id)), [others, blocked]); // on foot
@@ -353,6 +380,9 @@ export default function HallView({ hallId }: { hallId: string }) {
     if (!who) {
       if (seat) { say("You already have a desk. Stand up first to move."); return; } // one desk at a time
       setSitAt(s); // open sit dialog
+    } else if (who.isAmbient) {
+      if (seat) { say("You already have a desk. Stand up first to move."); return; } // one desk at a time
+      setSitAt(s); // an ambient student gives up their desk to a real person
     } else if (who.id !== profile?.id) setCardFor(who); // look at someone else's desk
   };
 
@@ -454,7 +484,8 @@ export default function HallView({ hallId }: { hallId: string }) {
   const left = phaseEndsAt ? phaseEndsAt - now : 0; // real ms left in phase
   const total = phaseEndsAt ? phaseEndsAt - phaseStart : 1; // real ms in phase
   const pct = phaseEndsAt ? Math.min(100, Math.max(0, ((now - phaseStart) / total) * 100)) : 0; // progress %
-  const liveCount = seatMap.size; // desks in use (incl. me)
+  const ambientCount = [...seatMap.values()].filter((m) => m.isAmbient).length; // scripted company on screen
+  const liveCount = seatMap.size - ambientCount; // real desks in use (incl. me); ambient students never count
   const walking = !!walk && !seat; // on foot now
   const canFs = typeof document !== "undefined" && !!document.fullscreenEnabled; // browser allows full screen (not iPhone Safari)
   const hint3d = `Tap a free desk to sit, or someone’s desk to see their topic.${hasSupabase ? "" : " Demo: open another tab to see live presence."}`; // shorter line over the 3D scene
@@ -466,7 +497,7 @@ export default function HallView({ hallId }: { hallId: string }) {
       <div className="hall-head">
         <div>
           <h1>{hall.name}</h1>
-          <div className="rule">{hall.rule} · {liveCount} of {ROWS.length * DESKS_PER_ROW} desks taken</div>
+          <div className="rule">{hall.rule} · {liveCount} of {ROWS.length * DESKS_PER_ROW} desks taken{ambientCount > 0 && <span className="muted small"> · {ambientCount} quiet companion{ambientCount === 1 ? "" : "s"}, not real people</span>}</div>
         </div>
         <div className="row">
           <span className="toggle">
@@ -474,12 +505,16 @@ export default function HallView({ hallId }: { hallId: string }) {
             Hide me from requests
           </span>
           <span className="toggle">
-            <input type="checkbox" checked={profile.chime} onChange={(e) => patchProfile({ chime: e.target.checked })} />
-            Soft chime
+            Timer sound
+            <select aria-label="Timer sound" value={alertSound} style={{ width: "auto" }} onChange={(e) => { const v = e.target.value as AlertSound; setAlertSound(v); saveAlertSound(v); playAlert(v); }}>
+              {ALERT_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
           </span>
           <span className="toggle">
-            <input type="checkbox" checked={rain} onChange={(e) => setRain(e.target.checked)} />
-            Soft rain
+            Background
+            <select aria-label="Background sound" value={ambient} style={{ width: "auto" }} onChange={(e) => setAmbient(e.target.value as AmbientKind)}>
+              {AMBIENT_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
           </span>
           {webgl && (
             <button className="ghost small" onClick={() => chooseView(view === "3d" ? "2d" : "3d")}>{view === "3d" ? "Simple view" : "3D hall"}</button>
@@ -528,13 +563,17 @@ export default function HallView({ hallId }: { hallId: string }) {
               <div className="small muted">{phase === "focus" ? "Deep focus" : phase === "break" ? "Short break" : "Ready when you are"} · Desk {seat}</div>
               <div className="hud-clock">{phaseEndsAt ? mmss(phaseEndsAt - now) : "--:--"}</div>
               <div className="small hud-topic">{topic}</div>
-              <div className="row" style={{ gap: 6, marginTop: 8 }}>
+              <div className="row" style={{ gap: 6, marginTop: 8, flexWrap: "wrap" }}>
                 {held.length > 0 && <span className="small muted">A note waits for your break</span>}
                 {phase === "focus" && <button className="ghost small" onClick={() => { bankFocus(); startPhase("break", plan.b); }}>Break</button>}
                 {phase !== "focus" && <button className="sage small" onClick={() => startPhase("focus", plan.f)}>{phase === "idle" ? "Next round" : "Back to focus"}</button>}
+                <button className="ghost small" onClick={() => setNotesOpen(true)}>Notes</button>
+                <button className="ghost small" onClick={() => setStatsOpen(true)}>Hours</button>
+                <button className="ghost small" onClick={() => setPlanOpen(true)}>Timetable</button>
                 <button className="ghost small" onClick={() => { setRecapThen(null); setRecapOpen(true); }}>Stand up</button>
                 <button className="ghost small" onClick={() => { setRecapThen("walk"); setRecapOpen(true); }}>Walk around</button>
               </div>
+              <SpotifyPlayer />
             </div>
           )}
         </div>
@@ -570,8 +609,12 @@ export default function HallView({ hallId }: { hallId: string }) {
               {held.length > 0 && <span className="small" style={{ opacity: 0.8 }}>A note is waiting for your break</span>}
               {phase === "focus" && <button className="ghost" onClick={() => { bankFocus(); startPhase("break", plan.b); }}>Take a break</button>}
               {phase !== "focus" && <button className="sage" onClick={() => startPhase("focus", plan.f)}>{phase === "idle" ? "Start next round" : "Back to focus"}</button>}
+              <button className="ghost" onClick={() => setNotesOpen(true)}>Notes</button>
+              <button className="ghost" onClick={() => setStatsOpen(true)}>Hours</button>
+              <button className="ghost" onClick={() => setPlanOpen(true)}>Timetable</button>
               <button className="ghost" onClick={() => setRecapOpen(true)}>Stand up</button>
             </div>
+            <SpotifyPlayer />
           </div>
         </div>
       )}
@@ -595,6 +638,9 @@ export default function HallView({ hallId }: { hallId: string }) {
       {/* Dialogs */}
       {floorAsk && <FloorDialog defaultTopic={lastFloorTopic || topic} onCancel={() => setFloorAsk(false)} onSit={(t) => { setFloorAsk(false); setLastFloorTopic(t); setFloor(t); }} />}
       {wardrobe && <WardrobeDialog look={parseLook(profile.look)} hasNeck={HAS_NECK.has(modelFor(profile.id, profile.color, profile.name).file)} onCancel={() => setWardrobe(false)} onSave={dress} />}
+      {notesOpen && <NotesDialog onClose={() => setNotesOpen(false)} />}
+      {statsOpen && <StatsDialog liveMinutes={Math.round((focusedMs + (phase === "focus" ? Math.max(0, Math.min(now, phaseEndsAt ?? now) - phaseStart) * speed : 0)) / 60000)} onClose={() => setStatsOpen(false)} />}
+      {planOpen && <TimetableDialog onClose={() => setPlanOpen(false)} />}
       {sitAt && <SitDialog seat={sitAt} defaultFocus={plan.f} defaultBreak={plan.b} onCancel={() => setSitAt(null)} onSit={sit} />}
       {cardFor && (
         <DeskCard

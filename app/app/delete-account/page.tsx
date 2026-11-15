@@ -21,7 +21,7 @@ export default function DeleteAccount() {
       </ol>
 
       <h2>What is deleted</h2>
-      <p>Straight away and permanently: your login and email address, profile and settings, sittings and recaps, usual desks, walking position, blocks, study requests, study-room memberships, notices, and reports you filed or that were filed about you. Nothing is kept afterwards. Voice is never recorded, so there is no audio to delete.</p>
+      <p>Straight away and permanently: your login and email address, profile and settings, sittings and recaps, desk notes and any share links, timetable, usual desks, walking position, blocks, study requests, study-room memberships, notices, and reports you filed or that were filed about you. Nothing is kept afterwards. Voice is never recorded, so there is no audio to delete.</p>
 
       <h2>Can’t sign in?</h2>
       <p>Email <a href={`mailto:${PRIVACY_CONTACT}?subject=Delete%20my%20Hush%20Hall%20account`}>{PRIVACY_CONTACT}</a> from the address on your account, and we’ll delete it for you.</p>

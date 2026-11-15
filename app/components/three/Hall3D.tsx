@@ -13,6 +13,7 @@ import Desks from "./Desks"; // desks, chairs, lamps
 import Avatar from "./VrmAvatar"; // seated anime students (VRM), low-poly fallback inside
 import { PLACES, PLACE_BY_SEAT } from "./layout"; // seat positions
 import type { Member } from "@/lib/presence/types"; // who sits where
+import { formatStudyHours } from "@/lib/studyStats"; // this-week hours on name tags
 import { vrmIdsOf } from "./models"; // MAX_VRM budget, shared with the prefetch
 import { WalkAvatar, LocalWalker, RemoteWalker, newInput, MOVE_KEYS, type WalkInput } from "./Walking"; // people on foot
 import type { Body } from "./walk"; // shared position object
@@ -153,15 +154,16 @@ function Scene({ seatMap, myId, mySeat, reduced, rain, onPick, hot, setHovered, 
   return (
     <>
       {/* Warm, cheap lighting: hemisphere + one key light + two sconce point lights */}
-      <color attach="background" args={["#2a1b12"]} />
-      <fog attach="fog" args={["#2a1b12", 22, 42]} />
-      <hemisphereLight args={["#ffe2b0", "#4a2e1c", 1.3]} />
-      <directionalLight position={[6, 12, 8]} intensity={1.4} color="#ffd59a" />
-      <directionalLight position={[-4, 6, -10]} intensity={0.35} color="#8fa6d6" />
-      <pointLight position={[-6.5, 4.2, -6.6]} intensity={9} distance={9} decay={1.6} color="#ffbf70" />
-      <pointLight position={[6.5, 4.2, -6.6]} intensity={9} distance={9} decay={1.6} color="#ffbf70" />
-      {/* Your own lamp gets one real light when seated, for a cosy pool on your desk */}
-      {mySeat && (() => { const p = PLACE_BY_SEAT.get(mySeat)!; return <pointLight position={[p.x - 0.5, 1.15, p.deskZ]} intensity={2.2} distance={3} decay={1.5} color="#ffd08a" />; })()}
+      {/* Warm, cheap lighting: hemisphere + one key light + two sconce point lights */}
+<color attach="background" args={["#2a1b12"]} />
+<fog attach="fog" args={["#2a1b12", 22, 42]} />
+<hemisphereLight args={["#ffe2b0", "#4a2e1c", 1.3]} />
+<directionalLight position={[6, 12, 8]} intensity={1.4} color="#ffd59a" />
+<directionalLight position={[-4, 6, -10]} intensity={0.35} color="#8fa6d6" />
+<pointLight position={[-6.5, 4.2, -6.6]} intensity={9} distance={9} decay={1.6} color="#ffbf70" />
+<pointLight position={[6.5, 4.2, -6.6]} intensity={9} distance={9} decay={1.6} color="#ffbf70" />
+{/* Your own lamp gets one real light when seated, for a cosy pool on your desk */}
+{mySeat && (() => { const p = PLACE_BY_SEAT.get(mySeat)!; return <pointLight position={[p.x - 0.5, 1.15, p.deskZ]} intensity={2.2} distance={3} decay={1.5} color="#ffd08a" />; })()}
 
       <Room rain={rain} reduced={reduced} closed={firstPerson || walking} />
       <Desks occupied={occupied} mine={mySeat} hovered={hot} firstPerson={firstPerson} onHover={setHovered} onPick={onPick} />
@@ -295,6 +297,7 @@ export default function Hall3D(props: Props) {
             <div className={`tag3d ${hot && hot !== seat ? "dim" : ""}`}>
               <div className="tag3d-who">{m.avatar} {m.name}</div>
               <div className="tag3d-topic">{m.topic}</div>
+              {typeof m.weekMinutes === "number" && m.weekMinutes > 0 && <div className="tag3d-hours">{formatStudyHours(m.weekMinutes)} this week</div>}
             </div>
           </div>
         ))}
@@ -307,9 +310,12 @@ export default function Hall3D(props: Props) {
           <div id="lbl-hover" className="lbl">
             {hm && hm.id !== myId ? (
               <div className="hover3d card-preview">
-                <div className="row" style={{ gap: 8 }}><span className="ava-sm" style={{ background: hm.color }}>{hm.avatar}</span><b>{hm.name}</b></div>
+                <div className="row" style={{ gap: 8 }}><span className="ava-sm" style={{ background: hm.color }}>{hm.avatar}</span><b>{hm.name}</b>{hm.isAmbient && <span className="ambient-tag">ambient</span>}</div>
                 <div className="small">Studying: {hm.topic}</div>
-                <div className="small muted">Tap for desk card</div>
+HEAD
+                                {typeof hm.weekMinutes === "number" && hm.weekMinutes > 0 && <div className="small muted">{formatStudyHours(hm.weekMinutes)} this week</div>}
+                <div className="small muted">{hm.isAmbient ? "Ambient student · tap to take this desk" : "Tap for desk card"}</div>
+ 4c3b4473071ad5b3c823813293fa19d5fa2ae16b
               </div>
             ) : (
               <div className="hover3d">{hm ? "Your desk" : `Desk ${hot} · vacant · tap to sit`}</div>
