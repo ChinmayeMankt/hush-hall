@@ -31,7 +31,7 @@ export const ALL_SEATS = ROWS.flatMap((r) =>
 
 // Demo students so a hall never feels empty in the prototype.
 // They are generated the same way in every tab, so all tabs agree on them.
-const DEMO_PEOPLE = [
+export const DEMO_PEOPLE = [
   { name: "Aarav", avatar: "🦉", topic: "Organic chem: SN1 vs SN2" },
   { name: "Meera", avatar: "🌿", topic: "GATE BT: enzyme kinetics" },
   { name: "Kabir", avatar: "🐢", topic: "DSA: graphs" },

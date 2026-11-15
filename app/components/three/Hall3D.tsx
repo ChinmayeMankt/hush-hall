@@ -309,10 +309,12 @@ export default function Hall3D(props: Props) {
           <div id="lbl-hover" className="lbl">
             {hm && hm.id !== myId ? (
               <div className="hover3d card-preview">
-                <div className="row" style={{ gap: 8 }}><span className="ava-sm" style={{ background: hm.color }}>{hm.avatar}</span><b>{hm.name}</b></div>
+                <div className="row" style={{ gap: 8 }}><span className="ava-sm" style={{ background: hm.color }}>{hm.avatar}</span><b>{hm.name}</b>{hm.isAmbient && <span className="ambient-tag">ambient</span>}</div>
                 <div className="small">Studying: {hm.topic}</div>
-                {typeof hm.weekMinutes === "number" && hm.weekMinutes > 0 && <div className="small muted">{formatStudyHours(hm.weekMinutes)} this week</div>}
-                <div className="small muted">Tap for desk card</div>
+<<<<<<< HEAD
+                                {typeof hm.weekMinutes === "number" && hm.weekMinutes > 0 && <div className="small muted">{formatStudyHours(hm.weekMinutes)} this week</div>}
+                <div className="small muted">{hm.isAmbient ? "Ambient student · tap to take this desk" : "Tap for desk card"}</div>
+>>>>>>> 4c3b4473071ad5b3c823813293fa19d5fa2ae16b
               </div>
             ) : (
               <div className="hover3d">{hm ? "Your desk" : `Desk ${hot} · vacant · tap to sit`}</div>

@@ -17,6 +17,7 @@ export interface Member {
   phaseEndsAt: number | null; // epoch ms when the current phase ends, if a timer runs
   hideFromRequests: boolean; // true = nobody can send this person a join request
   isDemo?: boolean; // true for the locally simulated students in the prototype
+  isAmbient?: boolean; // true for scripted ambient students (not real people; browser-only, never saved or shared)
   look?: string; // wardrobe choices (outfit colour, neck accessory, shoes); see components/three/looks.ts
   floor?: boolean; // true while this person sits on the floor to study (on foot, no desk); topic shows on their tag
   walking?: boolean; // true while this person walks around the hall on foot (no desk); live position comes from the walker store
