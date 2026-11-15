@@ -68,8 +68,10 @@ export function DeskCard(props: {
             <div className="muted small">Studying: {m.topic}</div>
           </div>
         </div>
-        {/* Join request: quiet, one short note, receiver decides */}
-        {props.canRequest ? (
+        {/* Ambient students are scripted company, not real people: no requests, blocks or reports */}
+        {m.isAmbient ? (
+          <p className="muted small" style={{ marginTop: 12 }}>Ambient student. Not a real person — just quiet company so the hall doesn’t feel empty. They leave a desk as soon as a real person wants it.</p>
+        ) : props.canRequest ? (
           <>
             <label htmlFor="note">Ask to study together in a small room (optional note)</label>
             <input id="note" type="text" maxLength={80} placeholder="e.g. Also doing enzyme kinetics, want to sync breaks?" value={note} onChange={(e) => setNote(e.target.value)} />
@@ -78,10 +80,10 @@ export function DeskCard(props: {
           <p className="muted small" style={{ marginTop: 12 }}>{props.reason}</p>
         )}
         <div className="actions">
-          <button type="button" className="ghost small" onClick={props.onReport}>Report</button>
-          <button type="button" className="ghost small" onClick={props.onBlock}>Block</button>
+          {!m.isAmbient && <button type="button" className="ghost small" onClick={props.onReport}>Report</button>}
+          {!m.isAmbient && <button type="button" className="ghost small" onClick={props.onBlock}>Block</button>}
           <button type="button" className="ghost" onClick={props.onClose}>Close</button>
-          {props.canRequest && <button type="button" className="sage" onClick={() => props.onRequest(note)}>Send request</button>}
+          {props.canRequest && !m.isAmbient && <button type="button" className="sage" onClick={() => props.onRequest(note)}>Send request</button>}
         </div>
       </div>
     </div>
