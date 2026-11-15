@@ -294,9 +294,20 @@ async function crisp(t: THREE.Texture, mips = true) {
 // throws away whole solid areas such as sleeves. This version keeps exactly the
 // same cut-off line but only softens it across the one pixel where alpha
 // actually changes, and falls back to the plain test where it doesn't.
+//
+// Two more problems this also handles:
+//  - Edge fringe. The pixels along the edge of a cut-out (hair cards, collars, ribbons) are only
+//    partly covered, and in the exported textures their colour is the pale fill used under the
+//    transparent area. They show as a thin bright halo round the hair outline. The colour of those
+//    edge pixels is darkened smoothly over the 0.3 of alpha above the cut-off; solid areas are untouched.
+//  - No antialiasing. Some GPUs / browsers / battery modes give a canvas without MSAA. Alpha-to-coverage
+//    then does nothing, the soft edge draws as hard jagged pixels, and the halo gets thicker. In that
+//    case (Hall3D tells us via setMsaa) we use a plain cut-off, nudged up a little to trim the fringe.
 const ALPHA_CHUNK = "#include <alphatest_fragment>"; // what MToon includes
+const EDGE_DARKEN = "diffuseColor.rgb *= mix( 0.6, 1.0, smoothstep( alphaTest, alphaTest + 0.3, diffuseColor.a ) ); // darken the pale edge fringe"; // GLSL
 const SOFT_ALPHA_TEST = `
 #ifdef USE_ALPHATEST
+  ${EDGE_DARKEN}
   #ifdef ALPHA_TO_COVERAGE
     float aw = fwidth( diffuseColor.a ); // alpha change across this pixel
     diffuseColor.a = aw > 1e-4 ? clamp( ( diffuseColor.a - alphaTest ) / aw + 0.5, 0.0, 1.0 ) : step( alphaTest, diffuseColor.a ); // soft edge, hard where flat
@@ -306,6 +317,20 @@ const SOFT_ALPHA_TEST = `
   #endif
 #endif
 `;
+const HARD_ALPHA_TEST = `
+#ifdef USE_ALPHATEST
+  ${EDGE_DARKEN}
+  if ( diffuseColor.a < alphaTest + 0.06 ) discard; // plain cut-off, a touch higher to trim the fringe
+#endif
+`;
+// The matcap (a painted highlight sphere that VRoid uses for hair gloss and cloth sheen) is looked up
+// by the surface normal, so it is brightest exactly where the surface turns away from the camera: the
+// outline. Boosted or not, that draws a bright halo along every hair and collar edge. The line below is
+// MToon's own (three-vrm 3.x mtoon.frag); we only multiply it by a fade that is 1 face-on and 0 at the silhouette.
+const MATCAP_LINE = "rim += matcapFactor * matcap;"; // what MToon runs
+const MATCAP_EDGE_FADE = "rim += matcapFactor * matcap * smoothstep( 0.12, 0.55, dot( viewDir, normal ) ); // fades out toward the silhouette"; // GLSL
+let MSAA = true; // does the canvas have multisampling? (default yes; Hall3D reports the truth before any model loads)
+export function setMsaa(on: boolean) { MSAA = on; } // called once when the canvas is created
 async function sharpen(scene: THREE.Object3D) {
   const jobs: Promise<void>[] = []; // texture work (only async on low-memory phones)
   scene.traverse((o) => {
@@ -314,11 +339,14 @@ async function sharpen(scene: THREE.Object3D) {
     for (const mat of (Array.isArray(m.material) ? m.material : [m.material]) as (THREE.Material & Record<string, unknown>)[]) {
       const u = (mat as { uniforms?: Record<string, { value: unknown }> }).uniforms; // MToon shader uniforms
       if (u?.alphaTest && mat.alphaTest > 0) u.alphaTest.value = mat.alphaTest; // three-vrm only copies the cut-off into the shader in vrm.update(), which we never call (we pose bones ourselves), so cut-out parts drew their hidden texels: black sleeves, dark rings round the eyes, black lace gaps
-      const face = /_FACE|_EYE|_Face_/.test(mat.name); // eyes, lashes, brows, mouth, face skin
-      for (const k of TEX_SLOTS) { const t = mat[k] as THREE.Texture | null | undefined; if (t?.isTexture) jobs.push(crisp(t, !face)); } // every texture it uses
+      for (const k of TEX_SLOTS) { const t = mat[k] as THREE.Texture | null | undefined; if (t?.isTexture) jobs.push(crisp(t, true)); } // every texture it uses, face and eyes included: without a mip chain a 1024 px face squeezed into ~60-100 px sparkles and grains as the head moves (the eye highlights stay put; they are only softened by the correct amount at a distance)
       if (mat.alphaTest > 0 && !mat.transparent && typeof mat.fragmentShader === "string" && (mat.fragmentShader as string).includes(ALPHA_CHUNK)) { // cut-out MToon part (hair strands, lace, collars, cuffs)
-        mat.fragmentShader = (mat.fragmentShader as string).replace(ALPHA_CHUNK, SOFT_ALPHA_TEST); // antialiased edge, same cut-off
-        mat.alphaToCoverage = true; mat.needsUpdate = true; // MSAA turns the soft edge into partial coverage
+        mat.fragmentShader = (mat.fragmentShader as string).replace(ALPHA_CHUNK, MSAA ? SOFT_ALPHA_TEST : HARD_ALPHA_TEST); // antialiased edge with MSAA, plain cut-off without; both darken the edge fringe
+        mat.alphaToCoverage = MSAA; mat.needsUpdate = true; // MSAA turns the soft edge into partial coverage
+      }
+      if (typeof mat.fragmentShader === "string" && (mat.fragmentShader as string).includes(MATCAP_LINE)) { // painted highlight layer (hair gloss, cloth sheen)
+        mat.fragmentShader = (mat.fragmentShader as string).replace(MATCAP_LINE, MATCAP_EDGE_FADE); // same look face-on, no halo on the outline
+        mat.needsUpdate = true; // recompile
       }
     }
   });
@@ -352,28 +380,22 @@ function faceFill(m: THREE.Mesh) {
 // Portrait polish. Two things make a dark-haired anime face read as "attractive"
 // at the distance people actually see each other (about 2-4 m): hair that shows
 // its shape instead of one black blob, and eyes that look bright and alive.
-//  - Hair: the VRoid matcap (the painted highlight band) is boosted, and a faint cool
-//    edge light (MToon's parametric rim) separates the head from the dark wall.
+//  - Hair: the VRoid matcap (the painted highlight band) is boosted, so the gloss on the fringe reads.
+//    This is only safe because the matcap is faded out toward the silhouette (MATCAP_EDGE_FADE in
+//    sharpen()); without that fade, the same boost, or a rim light, draws a bright halo round the outline.
 //  - Irises: a stronger glow from their own texture, so the colour reads as a clear
 //    gem-like iris with its catch-light, not a dark smudge under the fringe.
 // All of it is material settings on the shared template: no extra lights, draw calls or textures.
 const HAIR_SHEEN = 1.7; // matcap highlight multiplier (1 = as exported)
-const HAIR_EDGE = new THREE.Color("#8da2d4").multiplyScalar(0.3); // cool edge light on the hair rim
 const IRIS_GLOW = 0.55; // iris glow (faceFill gives eyes 0.3; this is on top for the iris only)
-type Polished = Toon & { isOutline?: boolean; matcapFactor?: THREE.Color; matcapTexture?: THREE.Texture | null; parametricRimColorFactor?: THREE.Color; parametricRimFresnelPowerFactor?: number; parametricRimLiftFactor?: number; rimLightingMixFactor?: number }; // MToon fields we touch
+type Polished = Toon & { isOutline?: boolean; matcapFactor?: THREE.Color; matcapTexture?: THREE.Texture | null }; // MToon fields we touch
 function polish(m: THREE.Mesh) {
   if (!m.isMesh) return; // only meshes
   const mats = (Array.isArray(m.material) ? m.material : [m.material]) as Polished[]; // surface (+ outline)
   for (const mat of mats) {
     if (mat.isOutline || mat.userData.polished) continue; // outline pass has no shading; once per material
     if (/_HAIR/.test(mat.name)) { // hair strands, fringe, back hair
-      if (mat.matcapTexture && mat.matcapFactor) mat.matcapFactor.multiplyScalar(HAIR_SHEEN); // stronger highlight band
-      if (mat.parametricRimColorFactor) { // cool edge light
-        mat.parametricRimColorFactor.copy(HAIR_EDGE);
-        mat.parametricRimFresnelPowerFactor = 4; // only near the silhouette
-        mat.parametricRimLiftFactor = 0.05; // starts right at the edge
-        mat.rimLightingMixFactor = 0.6; // partly follows the scene light, so it never glows in the dark
-      }
+      if (mat.matcapTexture && mat.matcapFactor) mat.matcapFactor.multiplyScalar(HAIR_SHEEN); // slightly stronger highlight band
       mat.userData.polished = true; mat.needsUpdate = true; // done
     } else if (/_EyeIris_/.test(mat.name) && mat.emissive && mat.map) { // the coloured part of the eye
       mat.emissiveMap = mat.map; mat.emissive.copy(FILL).multiplyScalar(IRIS_GLOW); // glow follows the painted iris

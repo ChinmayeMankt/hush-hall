@@ -40,7 +40,8 @@ The seated students are **VRoid sample characters by pixiv Inc. (VRoid Project),
 - Morph targets trimmed to blink, happy, relaxed and "a".
 - Toon outlines kept only on hair and face.
 - Skin and hair colours tinted at runtime for Indian-inclusive looks (skin tints re-balanced 16 Nov 2026 to remove an orange cast under the amber room light; same range of depth).
-- Runtime material polish (`polish()` in `components/three/vrm.ts`, 16 Nov 2026): hair highlight band boosted, a faint cool edge light on hair, brighter irises, slightly stronger and softer face fill. These are shader settings on the existing materials, with no new textures, lights or draw calls.
+- Runtime material polish (`polish()` in `components/three/vrm.ts`, 16 Nov 2026): hair highlight band boosted, brighter irises, slightly stronger and softer face fill. These are shader settings on the existing materials, with no new textures, lights or draw calls.
+- Edge-halo fix (16 Nov 2026, `sharpen()` in `components/three/vrm.ts`): the painted highlight layer (matcap) is faded out toward each surface's silhouette, which removes the bright halo along hair and collar outlines; cut-out edge pixels are darkened slightly to hide the pale fill colour under transparent texels; face and eye textures now use mipmaps (no grain at normal distance); and when the canvas has no antialiasing (`setMsaa()`, reported by `Hall3D`), cut-outs use a clean hard cut-off instead of alpha-to-coverage.
 - The script is `app/scripts/optimize_vrm.py`. Originals are about 15–19 MB each; optimised files are about 2.6–3.7 MB (about 1.4–2 MB gzipped).
 
 ## Everything else (procedural)

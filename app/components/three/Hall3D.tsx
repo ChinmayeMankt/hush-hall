@@ -15,6 +15,7 @@ import { PLACES, PLACE_BY_SEAT } from "./layout"; // seat positions
 import type { Member } from "@/lib/presence/types"; // who sits where
 import { formatStudyHours } from "@/lib/studyStats"; // this-week hours on name tags
 import { vrmIdsOf } from "./models"; // MAX_VRM budget, shared with the prefetch
+import { setMsaa } from "./vrm"; // tells the VRM loader whether the canvas has antialiasing
 import { WalkAvatar, LocalWalker, RemoteWalker, newInput, MOVE_KEYS, type WalkInput } from "./Walking"; // people on foot
 import type { Body } from "./walk"; // shared position object
 import type { WalkState } from "@/lib/presence/types"; // what my walk reports
@@ -275,6 +276,7 @@ export default function Hall3D(props: Props) {
       <Canvas
         dpr={dpr} // adaptive (see above): sharp when the device keeps up, lighter when it doesn't
         gl={{ antialias: true, powerPreference: "low-power" }} // MSAA edges (also smooths cut-out hair via alpha-to-coverage); prefer battery over peak speed
+        onCreated={({ gl }) => { const c = gl.getContext(); setMsaa(((c.getParameter(c.SAMPLES) as number) ?? 0) > 1); }} // some GPUs/browsers refuse MSAA: tell the avatar loader, so hair edges fall back to a clean hard cut-off instead of jagged pale fringes
         camera={{ position: OVERVIEW.pos.toArray(), fov: OVERVIEW.fov, near: 0.05, far: 80 }} // start in overview
         frameloop={props.reduced && !walking && walkers.length === 0 ? "demand" : "always"} // nothing animates under reduced motion, so render on demand (walking always needs frames)
       >
