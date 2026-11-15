@@ -1,17 +1,18 @@
 // Root layout: warm paper background, serif headings, no external fonts or trackers.
-import type { Metadata, Viewport } from "next"; // page metadata + viewport types
-import "./globals.css"; // all styling lives in one calm stylesheet
+import type { Metadata, Viewport } from "next";
+import "./globals.css";
 import ThemeMusic from "@/components/ThemeMusic";
+import { Analytics } from "@vercel/analytics/react";
 
 // Title and description for the browser tab.
 export const metadata: Metadata = {
-  title: "Hush Hall · a quiet virtual library", // tab title
-  description: "Take a desk, write your topic, study quietly next to others.", // short description
-  icons: { apple: "/apple-touch-icon.png" }, // home-screen icon on iPhone/iPad (the favicon stays app/icon.svg)
+  title: "Hush Hall · a quiet virtual library",
+  description: "Take a desk, write your topic, study quietly next to others.",
+  icons: { apple: "/apple-touch-icon.png" },
 };
 
 // Browser/status-bar colour for installed use (matches the manifest).
-export const viewport: Viewport = { themeColor: "#f6efe2" }; // paper, same as the header
+export const viewport: Viewport = { themeColor: "#f6efe2" };
 
 // Wrap every page in the same calm shell.
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <ThemeMusic />
+        <Analytics />
         {/* Thin header with the name only: no counters, no feeds */}
         <header className="topbar">
           <a href="/" className="brand">Hush Hall</a>
