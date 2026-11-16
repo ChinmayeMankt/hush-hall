@@ -212,12 +212,21 @@ export default function Hall3D(props: Props) {
   // faces, hair and outlines stay crisp on phones and retina laptops), and step
   // down in 0.25 steps toward 1x if the frame rate drops, back up when it recovers.
   // A device that keeps flip-flopping settles at 1x.
-  const maxDpr = typeof window !== "undefined" ? Math.min(2, Math.max(1, window.devicePixelRatio || 1)) : 1; // screen density, capped
+  const native = typeof window !== "undefined" ? Math.min(2, Math.max(1, window.devicePixelRatio || 1)) : 1; // screen density, capped
+  // "Sharper" mode (on by default, remembered per browser): draw up to about 1.5x the screen's own
+  // density and let the browser shrink it, so thin hair strands, eyelashes and book spines stop
+  // breaking into dots at the small size people have in the overview. The same frame-rate monitor
+  // still steps the resolution down on a GPU that can't keep up; switching it off goes back to native.
+  const [sharp, setSharp] = useState(true); // sharper mode on?
+  useEffect(() => { try { if (localStorage.getItem("hh-sharp") === "0") setSharp(false); } catch { /* storage blocked: stay on */ } }, []); // restore the choice after mount (no server/client mismatch)
+  const toggleSharp = () => setSharp((s) => { try { localStorage.setItem("hh-sharp", s ? "0" : "1"); } catch { /* storage blocked: still works for this visit */ } return !s; }); // flip + remember
+  const maxDpr = sharp ? Math.min(2, Math.max(1.5, Math.round(native * 1.5 * 4) / 4)) : native; // highest resolution: 1 -> 1.5, 1.25 -> 2, 1.5 and up -> 2
   // Floor: never draw below the screen's own density when it is fractional (Windows 125% / 150% scaling).
   // Drawing at 1x and letting the browser stretch it by 1.25x or 1.5x softens and shimmers the whole scene
   // (hair, faces, book spines, floor planks); a whole-number stretch (2x -> 1x) stays clean enough.
-  const minDpr = maxDpr <= 1.5 ? maxDpr : 1; // lowest resolution the adaptive steps may reach
+  const minDpr = native <= 1.5 ? native : 1; // lowest resolution the adaptive steps may reach
   const [dpr, setDpr] = useState(maxDpr); // current render resolution
+  useEffect(() => { setDpr(maxDpr); }, [maxDpr]); // switching the mode jumps straight to the new ceiling (the monitor then steps down if needed)
   const nudge = (d: number) => setZoom((z) => Math.min(1.1, Math.max(0.45, +(z + d).toFixed(2)))); // clamp zoom steps
 
   // Walking: one input object and one body per walk (a new walk starts fresh at its spot).
@@ -288,6 +297,11 @@ export default function Hall3D(props: Props) {
         <Scene {...props} hot={hot} setHovered={setHovered} labels={labels} zoom={zoom} input={input} bodies={bodies} anchors={store.current.anchors} />
       </Canvas>
 
+      {/* Picture quality: sharper = higher resolution (more GPU work) */}
+      <div className="sharp3d">
+        <button className={`ghost small ${sharp ? "on" : ""}`} aria-pressed={sharp} title="Draw the hall at a higher resolution. Turn off if it feels slow." onClick={toggleSharp}>Sharper: {sharp ? "on" : "off"}</button>
+      </div>
+
       {/* Gentle zoom buttons (touch-friendly; mouse wheel also works) */}
       {!firstPerson && !walking && (
         <div className="zoom3d">
@@ -318,10 +332,8 @@ export default function Hall3D(props: Props) {
               <div className="hover3d card-preview">
                 <div className="row" style={{ gap: 8 }}><span className="ava-sm" style={{ background: hm.color }}>{hm.avatar}</span><b>{hm.name}</b>{hm.isAmbient && <span className="ambient-tag">ambient</span>}</div>
                 <div className="small">Studying: {hm.topic}</div>
-HEAD
-                                {typeof hm.weekMinutes === "number" && hm.weekMinutes > 0 && <div className="small muted">{formatStudyHours(hm.weekMinutes)} this week</div>}
+                {typeof hm.weekMinutes === "number" && hm.weekMinutes > 0 && <div className="small muted">{formatStudyHours(hm.weekMinutes)} this week</div>}
                 <div className="small muted">{hm.isAmbient ? "Ambient student · tap to take this desk" : "Tap for desk card"}</div>
- 4c3b4473071ad5b3c823813293fa19d5fa2ae16b
               </div>
             ) : (
               <div className="hover3d">{hm ? "Your desk" : `Desk ${hot} · vacant · tap to sit`}</div>
