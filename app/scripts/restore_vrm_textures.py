@@ -33,6 +33,37 @@ LOSSLESS = ("Face", "Eye", "Brow", "Mouth")  # line art we never want blurred by
 # near-black fabric colour: same silhouette as before, clean edges, no gaps.
 OPAQUE_FILL = {("vita", "F00_002_Onepiece_01"): (16, 17, 24)}  # (model, image) -> fill colour
 
+# Edge colour fix. Some cut-out/blended textures were exported with the colour of their soft edge
+# texels pre-mixed against a white (or black) background: the back-hair layer's edges are nearly
+# white (luma 0.96 against 0.55 for the solid hair), eye highlights have grey rims. Those texels are
+# blended onto the scene, so every strand and highlight is drawn with a pale or dark fringe, at any
+# resolution. The fix is in the texture: every texel that is not solid gets the colour of the nearest
+# solid texel; alpha is untouched, so the shape stays exactly as drawn.
+EDGE_FIX = ("Hair", "EyeHighlight", "Eyeline", "Eyelash", "Brow")  # images whose soft edges get the neighbouring solid colour
+SOLID = 0.95  # alpha at or above this counts as solid
+
+def solid_colour(a, w):
+    # colour of the nearest texel with weight w (push-pull): average the solid texels down to 1 px, then fill back up
+    levels = [(a[..., :3] * w[..., None], w)]
+    while min(levels[-1][1].shape) > 1:
+        c, ww = levels[-1]; h2, w2 = c.shape[0] // 2 * 2, c.shape[1] // 2 * 2
+        c = c[:h2, :w2].reshape(h2 // 2, 2, w2 // 2, 2, 3).sum((1, 3)); ww = ww[:h2, :w2].reshape(h2 // 2, 2, w2 // 2, 2).sum((1, 3))
+        levels.append((c, ww))
+    col = levels[-1][0] / np.maximum(levels[-1][1], 1e-9)[..., None]
+    for c, ww in reversed(levels[:-1]):
+        up = np.repeat(np.repeat(col, 2, 0), 2, 1)
+        up = np.pad(up, ((0, c.shape[0] - up.shape[0]), (0, c.shape[1] - up.shape[1]), (0, 0)), mode="edge")
+        col = np.where(ww[..., None] > 0, c / np.maximum(ww, 1e-9)[..., None], up)
+    return col
+
+def clean_edges(rgba):
+    a = np.asarray(rgba, dtype=np.float64) / 255.0  # H x W x 4
+    solid = a[..., 3] >= SOLID
+    if solid.all() or not solid.any(): return rgba  # nothing to fix (or nothing to copy from)
+    col = solid_colour(a, solid.astype(np.float64))
+    out = a.copy(); out[~solid, :3] = col[~solid]  # every non-solid texel takes the nearby solid colour; alpha unchanged
+    return Image.fromarray(np.round(out * 255).astype(np.uint8), "RGBA")
+
 def read_glb(path):
     d = open(path, "rb").read()  # whole GLB
     jl = struct.unpack("<I", d[12:16])[0]  # JSON chunk length
@@ -72,12 +103,27 @@ def encode(im, name, fill=None):
     if fill:  # composite over an opaque fabric colour
         base = Image.new("RGBA", rgba.size, fill + (255,)); base.alpha_composite(rgba); rgba = base
     opaque = rgba.getchannel("A").getextrema()[0] == 255  # no transparency at all
-    if not opaque: rgba = bleed(rgba)  # no dark fringes when filtered
+    if not opaque: rgba = clean_edges(rgba) if any(k in name for k in EDGE_FIX) else bleed(rgba)  # soft edges take the solid colour next to them; other textures just fill the invisible texels (no dark fringes when filtered)
     src = rgba.convert("RGB") if opaque else rgba  # drop a useless alpha channel
     out = io.BytesIO()
     if any(k in name for k in LOSSLESS): src.save(out, "WEBP", lossless=True, quality=100, method=6, exact=True)  # pixel-exact
     else: src.save(out, "WEBP", quality=92, method=6, alpha_quality=100, exact=True)  # visually lossless at this size
     return out.getvalue()
+
+def write_glb(path, j, b, new_views):
+    # rewrite a GLB with some buffer views replaced (new_views: index -> bytes); everything else is kept as it is
+    nb = bytearray()  # rebuild BIN in view order
+    for i, v in enumerate(j["bufferViews"]):
+        data = new_views.get(i, view(j, b, i))
+        nb += b"\0" * (-len(nb) % 4)  # keep every view 4-byte aligned
+        v["byteOffset"] = len(nb); v["byteLength"] = len(data); nb += data
+    nb += b"\0" * (-len(nb) % 4)
+    j["buffers"][0]["byteLength"] = len(nb)
+    js = json.dumps(j, separators=(",", ":")).encode(); js += b" " * (-len(js) % 4)  # JSON pads with spaces
+    out = struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(js) + 8 + len(nb))  # GLB header
+    out += struct.pack("<II", len(js), 0x4E4F534A) + js + struct.pack("<II", len(nb), 0x004E4942) + bytes(nb)
+    before = os.path.getsize(path); open(path, "wb").write(out)
+    print(path, before, "->", len(out))
 
 def restore(orig_path, path, max_px):
     jo, bo = read_glb(orig_path); j, b = read_glb(path)  # original + shipped
@@ -102,18 +148,7 @@ def restore(orig_path, path, max_px):
         for k in ("extensionsUsed", "extensionsRequired"):
             j.setdefault(k, [])
             if "EXT_texture_webp" not in j[k]: j[k].append("EXT_texture_webp")
-    nb = bytearray()  # rebuild BIN in view order
-    for i, v in enumerate(j["bufferViews"]):
-        data = new_views.get(i, view(j, b, i))
-        nb += b"\0" * (-len(nb) % 4)  # keep every view 4-byte aligned
-        v["byteOffset"] = len(nb); v["byteLength"] = len(data); nb += data
-    nb += b"\0" * (-len(nb) % 4)
-    j["buffers"][0]["byteLength"] = len(nb)
-    js = json.dumps(j, separators=(",", ":")).encode(); js += b" " * (-len(js) % 4)  # JSON pads with spaces
-    out = struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(js) + 8 + len(nb))  # GLB header
-    out += struct.pack("<II", len(js), 0x4E4F534A) + js + struct.pack("<II", len(nb), 0x004E4942) + bytes(nb)
-    before = os.path.getsize(path); open(path, "wb").write(out)
-    print(path, before, "->", len(out))
+    write_glb(path, j, b, new_views)
 
 NAMES = {"sendagaya_shibu": "Sendagaya_Shibu", "sendagaya_shino": "Sendagaya_Shino", "vivi": "Vivi", "victoria_rubin": "Victoria_Rubin", "vita": "Vita", "sakurada_fumiriya": "Sakurada_Fumiriya", "hairsample_male": "HairSample_Male"}  # ours -> pixiv file
 if __name__ == "__main__":
