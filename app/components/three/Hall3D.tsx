@@ -213,6 +213,10 @@ export default function Hall3D(props: Props) {
   // down in 0.25 steps toward 1x if the frame rate drops, back up when it recovers.
   // A device that keeps flip-flopping settles at 1x.
   const maxDpr = typeof window !== "undefined" ? Math.min(2, Math.max(1, window.devicePixelRatio || 1)) : 1; // screen density, capped
+  // Floor: never draw below the screen's own density when it is fractional (Windows 125% / 150% scaling).
+  // Drawing at 1x and letting the browser stretch it by 1.25x or 1.5x softens and shimmers the whole scene
+  // (hair, faces, book spines, floor planks); a whole-number stretch (2x -> 1x) stays clean enough.
+  const minDpr = maxDpr <= 1.5 ? maxDpr : 1; // lowest resolution the adaptive steps may reach
   const [dpr, setDpr] = useState(maxDpr); // current render resolution
   const nudge = (d: number) => setZoom((z) => Math.min(1.1, Math.max(0.45, +(z + d).toFixed(2)))); // clamp zoom steps
 
@@ -280,7 +284,7 @@ export default function Hall3D(props: Props) {
         camera={{ position: OVERVIEW.pos.toArray(), fov: OVERVIEW.fov, near: 0.05, far: 80 }} // start in overview
         frameloop={props.reduced && !walking && walkers.length === 0 ? "demand" : "always"} // nothing animates under reduced motion, so render on demand (walking always needs frames)
       >
-        <PerformanceMonitor flipflops={3} onDecline={() => setDpr((d) => Math.max(1, +(d - 0.25).toFixed(2)))} onIncline={() => setDpr((d) => Math.min(maxDpr, +(d + 0.25).toFixed(2)))} onFallback={() => setDpr(1)} /> {/* resolution follows the frame rate */}
+        <PerformanceMonitor flipflops={3} onDecline={() => setDpr((d) => Math.max(minDpr, +(d - 0.25).toFixed(2)))} onIncline={() => setDpr((d) => Math.min(maxDpr, +(d + 0.25).toFixed(2)))} onFallback={() => setDpr(minDpr)} /> {/* resolution follows the frame rate */}
         <Scene {...props} hot={hot} setHovered={setHovered} labels={labels} zoom={zoom} input={input} bodies={bodies} anchors={store.current.anchors} />
       </Canvas>
 

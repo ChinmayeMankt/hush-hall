@@ -328,7 +328,12 @@ const HARD_ALPHA_TEST = `
 // outline. Boosted or not, that draws a bright halo along every hair and collar edge. The line below is
 // MToon's own (three-vrm 3.x mtoon.frag); we only multiply it by a fade that is 1 face-on and 0 at the silhouette.
 const MATCAP_LINE = "rim += matcapFactor * matcap;"; // what MToon runs
-const MATCAP_EDGE_FADE = "rim += matcapFactor * matcap * smoothstep( 0.12, 0.55, dot( viewDir, normal ) ); // fades out toward the silhouette"; // GLSL
+// Second fade: specular anti-aliasing. Where the normal changes a lot from one pixel to the next (thin
+// hair cards, creases, anything small on screen), the matcap lookup jumps between bright and dark
+// texels and the highlight sparkles as the head moves, worst at low resolution (integrated GPUs, or
+// the adaptive resolution stepping down). Fading the highlight with the screen-space normal change
+// removes that without touching smooth surfaces.
+const MATCAP_EDGE_FADE = "rim += matcapFactor * matcap * smoothstep( 0.12, 0.55, dot( viewDir, normal ) ) * ( 1.0 - smoothstep( 0.08, 0.35, length( fwidth( normal ) ) ) ); // fades out toward the silhouette and where the normal is noisy"; // GLSL
 let MSAA = true; // does the canvas have multisampling? (default yes; Hall3D reports the truth before any model loads)
 export function setMsaa(on: boolean) { MSAA = on; } // called once when the canvas is created
 async function sharpen(scene: THREE.Object3D) {
@@ -386,7 +391,7 @@ function faceFill(m: THREE.Mesh) {
 //  - Irises: a stronger glow from their own texture, so the colour reads as a clear
 //    gem-like iris with its catch-light, not a dark smudge under the fringe.
 // All of it is material settings on the shared template: no extra lights, draw calls or textures.
-const HAIR_SHEEN = 1.7; // matcap highlight multiplier (1 = as exported)
+const HAIR_SHEEN = 1.3; // matcap highlight multiplier (1 = as exported); 1.7 looked richer in a software renderer but sparkled on a real Intel UHD at 1.25x
 const IRIS_GLOW = 0.55; // iris glow (faceFill gives eyes 0.3; this is on top for the iris only)
 type Polished = Toon & { isOutline?: boolean; matcapFactor?: THREE.Color; matcapTexture?: THREE.Texture | null }; // MToon fields we touch
 function polish(m: THREE.Mesh) {
