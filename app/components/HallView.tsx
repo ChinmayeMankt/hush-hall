@@ -521,7 +521,7 @@ export default function HallView({ hallId }: { hallId: string }) {
           )}
           {/* Hall hopping: only while standing, so a sitting always ends with a recap */}
           <select aria-label="Move to another hall" value={hallId} disabled={!!seat} title={seat ? "Stand up to hop halls" : "Move to another hall"} onChange={(e) => { window.location.href = `/hall/${e.target.value}`; }} style={{ width: "auto" }}>
-            {HALLS.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+            {HALLS.map((h) => <option key={h.id} value={h.id} disabled={!!h.comingSoon}>{h.name}{h.comingSoon ? " (coming soon)" : ""}</option>)}
           </select>
           <a href="/" className="small">Lobby</a>
         </div>
