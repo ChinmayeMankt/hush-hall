@@ -238,6 +238,7 @@ export class SupabasePresence implements PresenceProvider {
         id, name: pub.nickname, avatar: pub.avatar, color: pub.color, // who (from the database)
         seat: desk?.seat ?? null, topic: pub.show_topic ? desk?.topic ?? (floor ? this.dbWalk.get(id)?.topic ?? "" : "") : "", // where + what (from the database: desk topic, or floor topic)
         floor, look: pub.look ?? "", // sitting on the floor? + wardrobe (from the database)
+        satDownAt: desk ? Date.parse(desk.started_at) || undefined : undefined, // when they sat down (database clock), for the "sat down X min ago" label
         phase: (desk ? b?.phase ?? "idle" : "idle") as Phase, phaseEndsAt: desk ? b?.phaseEndsAt ?? null : null, // timer (from presence)
         hideFromRequests: !pub.takes_requests, lastSeen: now, // privacy + freshness
         walking: !desk && (this.presWalk.has(id) || this.dbWalk.has(id)), // on foot only when they hold no desk (live channel or database)

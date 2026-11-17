@@ -49,6 +49,13 @@ export function unlockAudio() {
   } catch { /* audio unsupported; staying silent is fine */ }
 }
 
+// The page's one shared AudioContext, also used by the quiet presence sounds
+// (lib/presenceSounds.ts). Keeping a single context means one unlock gesture
+// covers timer alerts and presence sounds alike.
+export function sharedAudioContext(): AudioContext | null {
+  return getCtx(); // same instance playAlert() uses
+}
+
 // Unlock audio on the first tap, click or key press anywhere on the page. Returns a cleanup function.
 export function unlockAudioOnFirstGesture() {
   const events = ["pointerdown", "keydown", "touchstart"] as const; // any gesture counts

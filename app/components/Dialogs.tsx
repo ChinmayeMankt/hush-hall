@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react"; // local form and load state
 import type { Member } from "@/lib/presence/types"; // member shape
 import { REPORT_REASONS, type ReportReason } from "@/lib/account"; // report reasons (same list as the database)
+import { isRealStudent } from "@/lib/livePresence"; // real people vs scripted companions
 import { TOP_LABELS, type Look } from "./three/looks"; // wardrobe choices (no three.js import)
 import { formatStudyHours } from "@/lib/studyStats"; // this-week hours on the card
 
@@ -65,7 +66,7 @@ export function DeskCard(props: {
           <span style={{ fontSize: "2rem", background: m.color, borderRadius: "50%", width: 52, height: 52, display: "grid", placeItems: "center" }}>{m.avatar}</span>
           <div>
             {/* Desk card: nickname, avatar, topic, and (if they chose) this week's hours. No seat history, college or course. */}
-            <h2 style={{ margin: 0 }}>{m.name}</h2>
+            <h2 style={{ margin: 0 }}>{m.name} {isRealStudent(m) ? <span className="live-tag">live</span> : <span className="ambient-tag">companion</span>}</h2>
             <div className="muted small">Studying: {m.topic}</div>
             {typeof m.weekMinutes === "number" && m.weekMinutes > 0 && <div className="muted small">{formatStudyHours(m.weekMinutes)} this week</div>}
           </div>

@@ -15,6 +15,7 @@ import { PLACES, PLACE_BY_SEAT } from "./layout"; // seat positions
 import type { Member } from "@/lib/presence/types"; // who sits where
 import { formatStudyHours } from "@/lib/studyStats"; // this-week hours on name tags
 import { vrmIdsOf } from "./models"; // MAX_VRM budget, shared with the prefetch
+import { isRealStudent, satAgoLabel } from "@/lib/livePresence"; // real people vs scripted companions
 import { setMsaa, setOutlineView } from "./vrm"; // tells the VRM loader whether the canvas has antialiasing; keeps toon outlines at least ~1.5 px wide
 import { WalkAvatar, LocalWalker, RemoteWalker, newInput, MOVE_KEYS, type WalkInput } from "./Walking"; // people on foot
 import type { Body } from "./walk"; // shared position object
@@ -81,6 +82,7 @@ interface Props {
   floor?: string | null; // I'm sitting on the floor with this topic (null = on my feet)
   onGetUp?: () => void; // I tried to walk while sitting on the floor
   quick?: boolean; // on-screen "Quicker" toggle (brisk walk)
+  nowMs: number; // a slowly ticking "now" (for the "sat down X min ago" tag line)
 }
 
 // Each frame, list the people sitting on the floor (not me), so my walk goes round them.
@@ -359,15 +361,20 @@ export default function Hall3D(props: Props) {
 
       {/* DOM label layer (pointer-events off so clicks reach the desks) */}
       <div className="label-layer">
-        {tagged.map(([seat, m]) => (
-          <div key={seat} id={`lbl-tag-${seat}`} className="lbl">
-            <div className={`tag3d ${hot && hot !== seat ? "dim" : ""}`}>
-              <div className="tag3d-who">{m.avatar} {m.name}</div>
-              <div className="tag3d-topic">{m.topic}</div>
-              {typeof m.weekMinutes === "number" && m.weekMinutes > 0 && <div className="tag3d-hours">{formatStudyHours(m.weekMinutes)} this week</div>}
+        {tagged.map(([seat, m]) => {
+          const real = isRealStudent(m); // a live person, never scripted company
+          const ago = real ? satAgoLabel(m.satDownAt, props.nowMs) : null; // "sat down X min ago"
+          return (
+            <div key={seat} id={`lbl-tag-${seat}`} className="lbl">
+              <div className={`tag3d ${hot && hot !== seat ? "dim" : ""} ${real ? "real" : "companion"}`}>
+                <div className="tag3d-who">{m.avatar} {m.name}{real ? <span className="live-dot" title="Real student, here now" aria-label="live" /> : <span className="companion-tag">companion</span>}</div>
+                <div className="tag3d-topic">{m.topic}</div>
+                {ago && <div className="tag3d-ago">{ago}</div>}
+                {typeof m.weekMinutes === "number" && m.weekMinutes > 0 && <div className="tag3d-hours">{formatStudyHours(m.weekMinutes)} this week</div>}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {walkTags.map((m) => (
           <div key={m.id} id={`lbl-walk-${m.id}`} className="lbl">
             <div className="tag3d walk-tag"><div className="tag3d-who">{m.avatar} {m.name}</div>{m.floor && m.topic && <div className="tag3d-topic">{m.topic}</div>}</div>
@@ -377,10 +384,10 @@ export default function Hall3D(props: Props) {
           <div id="lbl-hover" className="lbl">
             {hm && hm.id !== myId ? (
               <div className="hover3d card-preview">
-                <div className="row" style={{ gap: 8 }}><span className="ava-sm" style={{ background: hm.color }}>{hm.avatar}</span><b>{hm.name}</b>{hm.isAmbient && <span className="ambient-tag">ambient</span>}</div>
+                <div className="row" style={{ gap: 8 }}><span className="ava-sm" style={{ background: hm.color }}>{hm.avatar}</span><b>{hm.name}</b>{isRealStudent(hm) ? <span className="live-tag">live</span> : <span className="ambient-tag">companion</span>}</div>
                 <div className="small">Studying: {hm.topic}</div>
                 {typeof hm.weekMinutes === "number" && hm.weekMinutes > 0 && <div className="small muted">{formatStudyHours(hm.weekMinutes)} this week</div>}
-                <div className="small muted">{hm.isAmbient ? "Ambient student · tap to take this desk" : "Tap for desk card"}</div>
+                <div className="small muted">{isRealStudent(hm) ? "Real student · tap for desk card" : "Companion · not a real person"}</div>
               </div>
             ) : (
               <div className="hover3d">{hm ? "Your desk" : `Desk ${hot} · vacant · tap to sit`}</div>

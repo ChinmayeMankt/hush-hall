@@ -26,6 +26,8 @@ import RoomPanel from "./RoomPanel"; // room members, leave/remove, voice
 import { ReportDialog } from "./Dialogs"; // report with a reason
 import { ALERT_OPTIONS, getAlertSound, playAlert, saveAlertSound, unlockAudioOnFirstGesture, type AlertSound } from "@/lib/chime"; // timer alert sounds
 import { AMBIENT_OPTIONS, startAmbient, stopAmbient, type AmbientKind } from "@/lib/ambient"; // background sounds
+import { playSitSound, playStandSound, playBreakSound, presenceSoundsEnabled, savePresenceSoundsEnabled } from "@/lib/presenceSounds"; // quiet, event-driven sounds for real students
+import { isRealStudent } from "@/lib/livePresence"; // tells real people apart from scripted companions
 import { hasWebGL, prefersReducedMotion } from "@/lib/env"; // capability checks
 import dynamic from "next/dynamic"; // lazy-load the 3D bundle
 import { prefetchModels } from "./three/models"; // tiny module: start character downloads before the 3D bundle arrives
@@ -82,6 +84,8 @@ export default function HallView({ hallId }: { hallId: string }) {
   const [ambient, setAmbient] = useState<AmbientKind>("music"); // background sound (off by default)
   const rain = ambient === "rain"; // window rain only for the rain sound
   const [alertSound, setAlertSound] = useState<AlertSound>("ping"); // timer alert sound (remembered on this device)
+  const [presenceSound, setPresenceSound] = useState(true); // presence sounds on/off (real students sitting, standing, going on break)
+  const [satAt, setSatAt] = useState<number | null>(null); // epoch ms I sat down (for "sat down X min ago" and my own sit/stand sounds)
   const [forceHover, setForceHover] = useState<string | null>(null); // ?hover=B1 for previews
 
   // ---- walking + full screen ----
@@ -149,6 +153,30 @@ export default function HallView({ hallId }: { hallId: string }) {
   // Load the saved timer sound for this device.
   useEffect(() => { setAlertSound(getAlertSound()); }, []);
 
+  // Load the saved presence-sound setting for this device.
+  useEffect(() => { setPresenceSound(presenceSoundsEnabled()); }, []);
+
+  // Presence sounds for other real students: a chair scrape when one sits, a
+  // chair scrape + book close when one stands, a quiet rustle when one takes a
+  // break. Driven by real presence changes only (never a loop). Companions are
+  // ignored, and nothing plays for people already seated when I arrive.
+  const prevRoster = useRef<Map<string, { seat: string | null; phase: Phase }>>(new Map()); // id -> last known desk + phase
+  useEffect(() => {
+    const prev = prevRoster.current; // last render's snapshot
+    const next = new Map<string, { seat: string | null; phase: Phase }>(); // this render's snapshot
+    for (const m of others) {
+      if (!isRealStudent(m)) continue; // companions never make a sound
+      const p = prev.get(m.id); // what we knew before
+      if (p) { // only react to changes for people we already saw
+        if (!p.seat && m.seat) playSitSound(); // sat down
+        else if (p.seat && !m.seat) playStandSound(); // stood up
+        if (p.phase !== "break" && m.phase === "break") playBreakSound(); // went on a break
+      }
+      next.set(m.id, { seat: m.seat, phase: m.phase }); // remember for next time
+    }
+    prevRoster.current = next; // store the snapshot
+  }, [others]);
+
   // Switch between the 3D hall and the simple card view, and remember it.
   const chooseView = (v: "3d" | "2d") => {
     setView(v); // show it
@@ -170,10 +198,11 @@ export default function HallView({ hallId }: { hallId: string }) {
       hideFromRequests: profile.hideFromRequests, // privacy toggle
       walking: !!walk && !seat, // on foot in the aisles (never while holding a desk)
       floor: !!walk && !seat && floor !== null, // sitting on the floor to study
+      satDownAt: seat && satAt ? satAt : undefined, // when I sat down, so others can show "sat down X min ago"
       look: profile.look ?? "", // wardrobe
       lastSeen: Date.now(), // refreshed by the provider
     };
-  }, [profile, seat, topic, phase, phaseEndsAt, walk, floor]); // walk/floor included so others learn when I start/stop walking or sit on the floor
+  }, [profile, seat, topic, phase, phaseEndsAt, walk, floor, satAt]); // walk/floor included so others learn when I start/stop walking or sit on the floor
 
   // Join the hall once my profile is ready; leave on unmount or tab close.
   const joined = useRef(false); // guard against double join
@@ -419,6 +448,8 @@ export default function HallView({ hallId }: { hallId: string }) {
     setSitAt(null); // close dialog
     setWalk(null); // sitting ends a walk (the camera eases into the seat view)
     startPhase("focus", f); // start focusing right away
+    setSatAt(Date.now()); // note when I sat, for the "sat down X min ago" label
+    playSitSound(); // my own chair scrape + soft marker
   };
 
   // Ritual step 4: stand up with a short recap.
@@ -431,6 +462,8 @@ export default function HallView({ hallId }: { hallId: string }) {
     const minutes = await saveStandUp(sittingId ?? "", wanted, note, { hallId, seat, topic }); // save history (database caps at real time)
     setRecapOpen(false); // close recap
     setSeat(null); setSittingId(null); setTopic(""); setPhase("idle"); setPhaseEndsAt(null); setFocusedMs(0); // back to the aisle (a study room stays open until you leave it)
+    setSatAt(null); // no desk, no "sat down" label
+    playStandSound(); // my own chair scrape + book close + soft marker
     if (!room?.id) setRoom(null); // demo rooms end with the sitting, as before
     setRecapThen(null); // reset the choice
     if (thenWalk) setWalk({ ...standSpot(from), n: Date.now(), pitch: 0.55 }); // step out behind my chair and walk on (the desk is already free); camera a little higher to see over the desk
@@ -516,6 +549,10 @@ export default function HallView({ hallId }: { hallId: string }) {
               {AMBIENT_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
           </span>
+          <span className="toggle" title="Quiet sounds when a real student sits, stands or takes a break. Companions never make a sound.">
+            <input type="checkbox" checked={presenceSound} onChange={(e) => { setPresenceSound(e.target.checked); savePresenceSoundsEnabled(e.target.checked); }} />
+            Presence sounds
+          </span>
           {webgl && (
             <button className="ghost small" onClick={() => chooseView(view === "3d" ? "2d" : "3d")}>{view === "3d" ? "Simple view" : "3D hall"}</button>
           )}
@@ -540,7 +577,7 @@ export default function HallView({ hallId }: { hallId: string }) {
       {/* 3D reading room when WebGL is available and chosen */}
       {view === "3d" && webgl ? (
         <div className="hall3d-wrap">
-          <Hall3D seatMap={seatMap} myId={profile.id} mySeat={seat} reduced={reduced} rain={rain} onPick={onDesk} hoverSeat={forceHover} me={me} walk={seat ? null : walk} walkers={walkersList} onMove={onMove} stick={stick} floor={floor} onGetUp={getUp} quick={quick} />
+          <Hall3D seatMap={seatMap} myId={profile.id} mySeat={seat} reduced={reduced} rain={rain} onPick={onDesk} hoverSeat={forceHover} me={me} walk={seat ? null : walk} walkers={walkersList} onMove={onMove} stick={stick} floor={floor} onGetUp={getUp} quick={quick} nowMs={minute * 60000} />
           {/* Calm frame controls, top-left: walk on foot, and full screen */}
           <div className="frame-ctl">
             {!seat && (walking
@@ -585,7 +622,7 @@ export default function HallView({ hallId }: { hallId: string }) {
             <div className="row-label">{r}</div>
             {Array.from({ length: DESKS_PER_ROW }, (_, i) => `${r}${i + 1}`).flatMap((s, i) => {
               const tile = (
-                <Desk key={s} seat={s} occupant={seatMap.get(s) ?? null} isMine={s === seat} isUsual={s === usual && !seat} onClick={() => onDesk(s)} />
+                <Desk key={s} seat={s} occupant={seatMap.get(s) ?? null} isMine={s === seat} isUsual={s === usual && !seat} nowMs={minute * 60000} onClick={() => onDesk(s)} />
               ); // one desk
               return i === 2 ? [tile, <div key={`${r}-aisle`} className="aisle" />] : [tile]; // aisle after desk 3
             })}
