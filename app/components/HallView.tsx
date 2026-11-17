@@ -16,6 +16,7 @@ import { SpotifyPlayer } from "./SpotifyPlayer"; // optional Spotify embed
 import { HALLS, ROWS, DESKS_PER_ROW, demoMembers, hallById } from "@/lib/halls"; // hall data
 import { getPresence, type JoinRequest, type Member, type Phase, type WalkState } from "@/lib/presence"; // presence layer
 import { ENTRANCE, standSpot } from "./three/walk"; // where a walk starts (tiny module: no three.js)
+import { PLACE_BY_SEAT } from "./three/layout"; // seat -> chair position (tiny data module: no three.js)
 import type { Profile } from "@/lib/profile"; // profile shape
 import { parseLook, lookString, HAS_NECK } from "./three/looks"; // wardrobe (tiny module: no three.js)
 import { modelFor } from "./three/models"; // which character I am (for the wardrobe's neck option)
@@ -28,6 +29,7 @@ import { ALERT_OPTIONS, getAlertSound, playAlert, saveAlertSound, unlockAudioOnF
 import { AMBIENT_OPTIONS, startAmbient, stopAmbient, type AmbientKind } from "@/lib/ambient"; // background sounds
 import { playSitSound, playStandSound, playBreakSound, presenceSoundsEnabled, savePresenceSoundsEnabled } from "@/lib/presenceSounds"; // quiet, event-driven sounds for real students
 import { isRealStudent } from "@/lib/livePresence"; // tells real people apart from scripted companions
+import { startPageTurns, type PageTurnCandidate, type Listener } from "@/lib/pageTurns"; // soft page turns for real seated students
 import { hasWebGL, prefersReducedMotion } from "@/lib/env"; // capability checks
 import dynamic from "next/dynamic"; // lazy-load the 3D bundle
 import { prefetchModels } from "./three/models"; // tiny module: start character downloads before the 3D bundle arrives
@@ -96,6 +98,7 @@ export default function HallView({ hallId }: { hallId: string }) {
   const rootRef = useRef<HTMLDivElement>(null); // what goes full screen (scene + overlays + dialogs together)
   const stick = useRef({ x: 0, y: 0 }).current; // on-screen move pad (touch), shared with the 3D hall
   const sentWalk = useRef<{ w: WalkState; at: number } | null>(null); // last position sent to the hall
+  const lastPos = useRef<{ x: number; z: number } | null>(null); // my latest position on foot (for page-turn distance falloff)
   const [floor, setFloor] = useState<string | null>(null); // sitting on the floor with this topic (only while on foot)
   const [floorAsk, setFloorAsk] = useState(false); // the "sit on the floor" topic dialog is open
   const [lastFloorTopic, setLastFloorTopic] = useState(""); // offered again next time
@@ -241,6 +244,7 @@ export default function HallView({ hallId }: { hallId: string }) {
   // Walking position for the hall: a few times a second while moving, once when I stop,
   // and an occasional refresh while standing still (keeps presence light and calm).
   const onMove = useCallback((w: WalkState) => { // called every frame by the 3D hall while I walk
+    lastPos.current = { x: w.x, z: w.z }; // remember where I am for page-turn distance falloff
     const now = performance.now(), last = sentWalk.current; // timing
     const posed = !last || last.w.pose !== w.pose; // started or stopped moving
     const shifted = !!last && (Math.hypot(w.x - last.w.x, w.z - last.w.z) > 0.05 || Math.abs(w.ry - last.w.ry) > 0.12); // moved or turned noticeably
@@ -250,7 +254,7 @@ export default function HallView({ hallId }: { hallId: string }) {
 
   // Not walking any more (sat down, stopped, or left): clear my position for everyone.
   useEffect(() => {
-    if (!walk || seat) { presence.walk(null); sentWalk.current = null; setFloor(null); setQuick(false); } // nothing to show on foot (and no floor sit without a walk)
+    if (!walk || seat) { presence.walk(null); sentWalk.current = null; setFloor(null); setQuick(false); if (seat) lastPos.current = null; } // nothing to show on foot (and no floor sit without a walk); forget my walking spot once seated
   }, [walk, seat, presence]);
 
   // G (while walking): sit on the floor here, or get up again. Ignored while typing or in a dialog.
@@ -378,6 +382,30 @@ export default function HallView({ hallId }: { hallId: string }) {
     if (me?.seat) map.set(me.seat, me); // my own desk always shows me
     return map; // ready for rendering
   }, [demos, others, ambientStudents, blocked, me]);
+
+  // Page turns: a soft, distance-scaled page turn now and then for a real, seated
+  // student — never a companion — at most once per 25-30 s across the whole hall.
+  // It reads the live seat map and my own position each tick, so it rides the same
+  // presence data as everything else and adds no network traffic of its own.
+  const pageWorld = useRef<{ seats: Map<string, Member>; seat: string | null }>({ seats: new Map(), seat: null }); // freshest hall snapshot for the loop
+  useEffect(() => { pageWorld.current = { seats: seatMap, seat }; }, [seatMap, seat]); // keep the loop's view current
+  useEffect(() => {
+    if (!presenceSound) return; // muted: the toggle stops the loop as well as silencing it
+    const stop = startPageTurns(() => {
+      const { seats, seat: mySeat } = pageWorld.current; // current hall + my desk
+      const listener: Listener = mySeat
+        ? (() => { const p = PLACE_BY_SEAT.get(mySeat); return p ? { x: p.x, z: p.chairZ } : { x: 0, z: 0 }; })()
+        : lastPos.current ?? { x: 0, z: 0 }; // from my chair, else my spot on foot, else the middle of the hall
+      const candidates: PageTurnCandidate[] = []; // real, seated, reading students only
+      for (const [s, m] of seats) {
+        if (!isRealStudent(m) || m.phase === "break") continue; // companions and people stretching never turn a page here
+        const p = PLACE_BY_SEAT.get(s); // chair position
+        if (p) candidates.push({ seat: s, x: p.x, z: p.chairZ }); // used for distance falloff
+      }
+      return { candidates, listener };
+    });
+    return stop; // stop the loop on mute or unmount
+  }, [presenceSound]);
 
   // Other people walking in the aisles (no desk), minus anyone I blocked.
   const walkersList = useMemo(() => others.filter((m) => m.walking && !m.seat && !blocked.has(m.id)), [others, blocked]); // on foot
