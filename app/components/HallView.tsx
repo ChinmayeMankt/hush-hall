@@ -577,7 +577,7 @@ export default function HallView({ hallId }: { hallId: string }) {
               {AMBIENT_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
             </select>
           </span>
-          <span className="toggle" title="Quiet sounds when a real student sits, stands or takes a break. Companions never make a sound.">
+          <span className="toggle" title="Quiet sounds when a real student sits, stands, takes a break or turns a page. Companions never make a sound.">
             <input type="checkbox" checked={presenceSound} onChange={(e) => { setPresenceSound(e.target.checked); savePresenceSoundsEnabled(e.target.checked); }} />
             Presence sounds
           </span>
