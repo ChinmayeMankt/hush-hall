@@ -9,14 +9,16 @@ export interface Hall {
   name: string; // shown on the lobby door
   mood: string; // one-line description
   rule: string; // the hall's single house rule
+  comingSoon?: boolean; // locked for now: shown as "coming soon" so everyone gathers in one busy hall first
 }
 
 // The halls on the lobby board.
+export const MAIN_HALL = "main-reading"; // the one open hall (everyone studies together here first)
 export const HALLS: Hall[] = [
   { id: "main-reading", name: "Main Reading Hall", mood: "Big, quiet, long tables", rule: "Silent. Nods only." },
-  { id: "science-wing", name: "Science Wing", mood: "Labs, papers, problem sets", rule: "Silent. Diagrams welcome." },
-  { id: "exam-season", name: "Exam Season Hall", mood: "Deadlines and steady pages", rule: "Silent. One topic per desk." },
-  { id: "night-owls", name: "Night Owls", mood: "Late-night lamps", rule: "Silent. Be kind to tired eyes." },
+  { id: "science-wing", name: "Science Wing", mood: "Labs, papers, problem sets", rule: "Silent. Diagrams welcome.", comingSoon: true },
+  { id: "exam-season", name: "Exam Season Hall", mood: "Deadlines and steady pages", rule: "Silent. One topic per desk.", comingSoon: true },
+  { id: "night-owls", name: "Night Owls", mood: "Late-night lamps", rule: "Silent. Be kind to tired eyes.", comingSoon: true },
 ];
 
 // Look up a hall by id.

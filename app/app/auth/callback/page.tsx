@@ -25,7 +25,7 @@ export default function AuthCallback() {
       if (!data.session && code) { await sb.auth.exchangeCodeForSession(code).catch(() => null); data = (await sb.auth.getSession()).data; } // exchange if needed
       if (!data.session) { setFailed(true); return; } // link expired or opened in another browser
       const a = await loadAccount(true); // fresh state
-      window.location.replace(a.state === "needs_onboarding" ? "/welcome" : next); // continue
+      window.location.replace(a.state === "needs_onboarding" ? "/welcome" : next === "/" ? "/hall/main-reading" : next); // returning people go straight to the Main Reading Hall
     })().catch(() => setFailed(true)); // network / server error: show the retry card, not a spinner
   }, []);
 

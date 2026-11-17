@@ -56,7 +56,8 @@ export default function Lobby() {
         <h1>Welcome to the library.</h1>
         {deleted && <p className="small">Your account and its data have been deleted.</p>}
         <p className="muted">Take a numbered desk in a quiet hall, write what you’re working on, and study next to other people. No chat, no feeds, no guilt.</p>
-        <p><a className="btn sage" href="/signin">Sign in or create an account</a></p>
+        <p><a className="btn sage" href="/signin">Enter the library</a></p>
+        <p className="small muted">Just your email. We send a link, you tap it, and you’re at a desk. No password.</p>
         <p className="small muted">Hush Hall is for people aged 18 and over. Your desk shows only your nickname, avatar and topic. <a href="/rules">House rules</a> · <a href="/privacy">Privacy policy</a></p>
       </section>
     </div>
@@ -131,11 +132,18 @@ export default function Lobby() {
       </div>
 
       {/* Hall doors */}
-      <h2 style={{ marginTop: 28 }}>Public halls</h2>
+      <h2 style={{ marginTop: 28 }}>Halls</h2>
       {!ready && <p className="muted small">Write a name on your library card to walk in.</p>}
       <div className="grid2">
         {HALLS.map((h) => {
           const n = counts ? counts[h.id] ?? 0 : demoMembers(h.id).length; // real count, or demo students
+          if (h.comingSoon) return ( // locked hall: visible, not enterable
+            <div key={h.id} className="card door locked" aria-disabled="true" style={{ opacity: 0.65, cursor: "default" }}>
+              <h3>🔒 {h.name}</h3>
+              <div className="muted small">{h.mood}</div>
+              <div className="small" style={{ marginTop: 6 }}>Coming soon</div>
+            </div>
+          );
           return (
             <a key={h.id} href={ready ? `/hall/${h.id}` : undefined} className="card door" aria-disabled={!ready} style={ready ? undefined : { opacity: 0.6, pointerEvents: "none" }}>
               <h3>{h.name}</h3>

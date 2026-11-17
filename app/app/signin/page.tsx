@@ -7,6 +7,16 @@ import { useState } from "react"; // form state
 import { hasSupabase, supabase } from "@/lib/backend/client"; // auth
 import { loadAccount } from "@/lib/account"; // where to go after the code works
 
+// A one-tap shortcut to the person's inbox for the common mail providers.
+function mailApp(email: string): { name: string; url: string } | null {
+  const d = email.trim().toLowerCase().split("@")[1] ?? ""; // domain
+  if (d === "gmail.com" || d === "googlemail.com") return { name: "Gmail", url: "https://mail.google.com/" };
+  if (/^(outlook|hotmail|live|msn)\./.test(d)) return { name: "Outlook", url: "https://outlook.live.com/mail/" };
+  if (/^yahoo\./.test(d) || d === "ymail.com") return { name: "Yahoo Mail", url: "https://mail.yahoo.com/" };
+  if (d === "icloud.com" || d === "me.com") return { name: "iCloud Mail", url: "https://www.icloud.com/mail" };
+  return null; // other providers: no shortcut
+}
+
 export default function SignIn() {
   const [email, setEmail] = useState(""); // address
   const [stage, setStage] = useState<"form" | "sending" | "sent" | "error">("form"); // progress
@@ -36,7 +46,7 @@ export default function SignIn() {
       if (error) throw error; // wrong or expired
       const next = new URLSearchParams(window.location.search).get("next") ?? "/"; // where to go afterwards
       const a = await loadAccount(true); // new or returning?
-      window.location.replace(a.state === "needs_onboarding" ? "/welcome" : next.startsWith("/") ? next : "/"); // continue
+      window.location.replace(a.state === "needs_onboarding" ? "/welcome" : next.startsWith("/") && next !== "/" ? next : "/hall/main-reading"); // returning people go straight to the Main Reading Hall
     } catch {
       setCodeBad(true); setCodeBusy(false); // show the calm error line
     }
@@ -46,10 +56,11 @@ export default function SignIn() {
 
   return (
     <div className="card narrow">
-      <h1>Sign in</h1>
+      <h1>{stage === "sent" ? "Check your email" : "Enter the library"}</h1>
       {stage === "sent" ? (
         <>
-          <p>Check your inbox for a sign-in email from Hush Hall (look in spam or promotions too).</p>
+          <p>We sent a link to <b>{email.trim()}</b>. Tap it and you’re in the Main Reading Hall. (Look in spam or promotions too.)</p>
+          {mailApp(email) && <p><a className="btn sage" href={mailApp(email)!.url} target="_blank" rel="noreferrer">Open {mailApp(email)!.name}</a></p>}
           <p className="small muted">Open the link on <b>this same device and browser</b>. If the link doesn’t work, or you opened the email on another device, type the code from the email here instead:</p>
           <form onSubmit={verify}>
             <label htmlFor="code">Code from the email</label>
@@ -63,11 +74,11 @@ export default function SignIn() {
         </>
       ) : (
         <form onSubmit={send}>
-          <p className="muted small">New or returning, it’s the same: we email you a one-time link. No password to remember.</p>
+          <p className="muted small">New or returning, it’s the same: type your email and we send a one-tap link. No password, no forms to fill first.</p>
           <label htmlFor="email">Email</label>
           <input id="email" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
           {stage === "error" && <p className="small muted">That didn’t send. Check the address and try again in a minute.</p>}
-          <div className="actions"><button type="submit" className="sage" disabled={stage === "sending" || !email.includes("@")}>{stage === "sending" ? "Sending…" : "Email me a link"}</button></div>
+          <div className="actions"><button type="submit" className="sage" disabled={stage === "sending" || !email.includes("@")}>{stage === "sending" ? "Sending…" : "Send my link"}</button></div>
           <p className="small muted">Hush Hall is for people aged 18 and over. <a href="/rules">House rules</a> · <a href="/privacy">Privacy policy</a></p>
         </form>
       )}
