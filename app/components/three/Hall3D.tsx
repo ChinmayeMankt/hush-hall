@@ -15,11 +15,53 @@ import { PLACES, PLACE_BY_SEAT } from "./layout"; // seat positions
 import type { Member } from "@/lib/presence/types"; // who sits where
 import { formatStudyHours } from "@/lib/studyStats"; // this-week hours on name tags
 import { vrmIdsOf } from "./models"; // MAX_VRM budget, shared with the prefetch
-import { setMsaa } from "./vrm"; // tells the VRM loader whether the canvas has antialiasing
+import { setMsaa, setOutlineView } from "./vrm"; // tells the VRM loader whether the canvas has antialiasing; keeps toon outlines at least ~1.5 px wide
 import { WalkAvatar, LocalWalker, RemoteWalker, newInput, MOVE_KEYS, type WalkInput } from "./Walking"; // people on foot
 import type { Body } from "./walk"; // shared position object
 import type { WalkState } from "@/lib/presence/types"; // what my walk reports
 import { PerformanceMonitor } from "@react-three/drei"; // frame-rate watcher for the adaptive resolution
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js"; // post-processing chain for edge smoothing
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js"; // draws the scene into the chain (multisampled, up to 8x)
+import { FXAAPass } from "three/examples/jsm/postprocessing/FXAAPass.js"; // smooths the stair-steps hardware antialiasing leaves on cut-out hair, thin lines and shader edges
+
+// Keeps the toon outline (the dark line round faces and hair) at least ~1.5 device pixels wide as the canvas
+// size or the adaptive resolution changes. Thinner than a pixel it breaks into dashes (see vrm.ts).
+function OutlineSync() {
+  const gl = useThree((s) => s.gl); // renderer
+  useFrame(() => setOutlineView(gl.domElement.height, gl.getPixelRatio())); // drawing-buffer height in device px + its ratio; does nothing unless one changed
+  return null;
+}
+
+// Edge smoothing. Hardware multisampling (MSAA) only smooths the edges of triangles; it leaves stair-steps on
+// hair cut out of textures (4 coverage levels), on thin lines and on shader edges. This draws the scene into a
+// multisampled buffer (up to 8x) and runs FXAA over it, so every edge gets smoothed whatever made it. Mounted only
+// while Sharper is on.
+// Colours must not change. three.js normally skips tone mapping and sRGB encoding when drawing into a buffer
+// (the lamp glows, screens and the background are drawn with toneMapped off and would come out darker if tone
+// mapping were applied afterwards). Flagging the buffer as an XR-style target with an sRGB texture makes
+// three apply each material's own tone mapping and sRGB encoding while drawing, exactly like the canvas, so
+// the buffer already holds the final colours and FXAA can read them as they are.
+function Smooth() {
+  const { gl, scene, camera, size } = useThree(); // renderer + what to draw
+  const dpr = useThree((s) => s.viewport.dpr); // current render resolution (the adaptive monitor changes it)
+  const composer = useMemo(() => {
+    const c = new EffectComposer(gl); // half-float buffers, so tone mapping afterwards stays accurate
+    for (const rt of [c.renderTarget1, c.renderTarget2]) {
+      (rt as THREE.WebGLRenderTarget & { isXRRenderTarget?: boolean }).isXRRenderTarget = true; // draw with each material's own tone mapping + output encoding, like the canvas
+      rt.texture.colorSpace = THREE.SRGBColorSpace; // ...encoded as sRGB
+    }
+    c.renderTarget2.samples = Math.min(8, gl.capabilities.maxSamples); // hardware MSAA: 8 samples where the GPU has them (cut-out hair edges get 9 smoothing levels instead of 5), else its maximum
+    c.addPass(new RenderPass(scene, camera)); // draws into renderTarget2, the composer's first "read" buffer
+    const fxaa = new FXAAPass(); // last pass draws to the canvas
+    fxaa.needsSwap = false; // don't swap buffers after it: the scene keeps drawing into the one multisampled buffer (the other is never allocated), which halves memory
+    c.addPass(fxaa);
+    return c;
+  }, [gl, scene, camera]);
+  useEffect(() => { composer.setPixelRatio(dpr); composer.setSize(size.width, size.height); }, [composer, size.width, size.height, dpr]); // follow canvas size and adaptive resolution
+  useEffect(() => () => composer.dispose(), [composer]); // free the buffers when Sharper is turned off
+  useFrame(() => composer.render(), 1); // a positive priority replaces R3F's own render
+  return null;
+}
 
 
 // Props from HallView.
@@ -224,7 +266,10 @@ export default function Hall3D(props: Props) {
   // Floor: never draw below the screen's own density when it is fractional (Windows 125% / 150% scaling).
   // Drawing at 1x and letting the browser stretch it by 1.25x or 1.5x softens and shimmers the whole scene
   // (hair, faces, book spines, floor planks); a whole-number stretch (2x -> 1x) stays clean enough.
-  const minDpr = native <= 1.5 ? native : 1; // lowest resolution the adaptive steps may reach
+  // With Sharper on the floor is higher: at 1x a thin outline (chin, hair edge) is a one-pixel staircase whatever
+  // the shader does, and only extra pixels smooth it. So Sharper keeps drawing at 1.5x or more (never below the
+  // screen's own density, so no fractional stretch on a 2x screen); turn Sharper off on a GPU that can't keep up.
+  const minDpr = sharp ? Math.min(maxDpr, Math.max(native, 1.5)) : native <= 1.5 ? native : 1; // lowest resolution the adaptive steps may reach
   const [dpr, setDpr] = useState(maxDpr); // current render resolution
   useEffect(() => { setDpr(maxDpr); }, [maxDpr]); // switching the mode jumps straight to the new ceiling (the monitor then steps down if needed)
   const nudge = (d: number) => setZoom((z) => Math.min(1.1, Math.max(0.45, +(z + d).toFixed(2)))); // clamp zoom steps
@@ -293,6 +338,8 @@ export default function Hall3D(props: Props) {
         camera={{ position: OVERVIEW.pos.toArray(), fov: OVERVIEW.fov, near: 0.05, far: 80 }} // start in overview
         frameloop={props.reduced && !walking && walkers.length === 0 ? "demand" : "always"} // nothing animates under reduced motion, so render on demand (walking always needs frames)
       >
+        <OutlineSync />
+        {sharp && <Smooth />}
         <PerformanceMonitor flipflops={3} onDecline={() => setDpr((d) => Math.max(minDpr, +(d - 0.25).toFixed(2)))} onIncline={() => setDpr((d) => Math.min(maxDpr, +(d + 0.25).toFixed(2)))} onFallback={() => setDpr(minDpr)} /> {/* resolution follows the frame rate */}
         <Scene {...props} hot={hot} setHovered={setHovered} labels={labels} zoom={zoom} input={input} bodies={bodies} anchors={store.current.anchors} />
       </Canvas>

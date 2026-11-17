@@ -334,6 +334,46 @@ const MATCAP_LINE = "rim += matcapFactor * matcap;"; // what MToon runs
 // the adaptive resolution stepping down). Fading the highlight with the screen-space normal change
 // removes that without touching smooth surfaces.
 const MATCAP_EDGE_FADE = "rim += matcapFactor * matcap * smoothstep( 0.12, 0.55, dot( viewDir, normal ) ) * ( 1.0 - smoothstep( 0.08, 0.35, length( fwidth( normal ) ) ) ); // fades out toward the silhouette and where the normal is noisy"; // GLSL
+// Toon outlines (the dark line round the face, chin and hair) are a second copy of the mesh pushed outward
+// by a fixed world-space width (about a millimetre). A little way back from the camera that is far less than
+// one screen pixel, so the outline only covers the pixels it happens to hit: the line breaks into dashes and
+// dots, at any resolution or antialiasing setting. The patch below gives the outline a minimum width in
+// device pixels (OUTLINE_PX), so it always stays a continuous line, and leaves it at its authored width
+// whenever that is already wider (close up).
+const OUTLINE_DECL = "uniform float outlineWidthFactor;"; // in MToon's vertex shader
+const OUTLINE_DECL_NEW = "uniform float outlineWidthFactor;\nuniform float uOutlinePx;\nuniform float uOutlineViewH;"; // + our min width (px) and the canvas height (px)
+const OUTLINE_LINE = "vec3 outlineOffset = outlineWidthFactor * worldNormalLength * objectNormal;"; // MToon's own line
+const OUTLINE_LINE_NEW = `
+    #ifdef OUTLINE_WIDTH_SCREEN
+      float outlineW = outlineWidthFactor; // screen-width mode is already pixel based
+    #else
+      // world size of uOutlinePx pixels at this depth: 2 * depth / ( projection scale * canvas height )
+      float outlineW = max( outlineWidthFactor, uOutlinePx * 2.0 * vViewPosition.z / ( projectionMatrix[ 1 ].y * uOutlineViewH ) );
+    #endif
+    vec3 outlineOffset = outlineW * worldNormalLength * objectNormal;`;
+const OUTLINE_VIEW = { px: 1.5, h: 800 }; // current minimum width (device px) and drawing-buffer height; Hall3D keeps these up to date
+type OutlineMat = THREE.Material & { isOutline?: boolean; vertexShader?: string; uniforms?: Record<string, { value: unknown }> };
+const OUTLINE_MATS = new Set<OutlineMat>(); // every patched outline material, including tinted clones (clones get their own uniform objects)
+export function trackOutline(mat: THREE.Material) { // call on the original (done in sharpen) and on any clone of it
+  const m = mat as OutlineMat;
+  if (!m.uniforms || typeof m.vertexShader !== "string" || !m.vertexShader.includes("uOutlineViewH")) return; // not a patched outline
+  m.uniforms.uOutlinePx ??= { value: OUTLINE_VIEW.px }; m.uniforms.uOutlineViewH ??= { value: OUTLINE_VIEW.h }; // clones keep the entries; make sure
+  OUTLINE_MATS.add(m);
+}
+export function setOutlineView(heightPx: number, pixelRatio: number) { // canvas height in device px + its pixel ratio (called every frame; cheap)
+  const px = Math.max(1.5, 0.9 * pixelRatio); // 1.5 px keeps a diagonal line unbroken; scales up with the render resolution so it looks the same at 2x
+  if (px === OUTLINE_VIEW.px && heightPx === OUTLINE_VIEW.h) return; // nothing changed
+  OUTLINE_VIEW.px = px; OUTLINE_VIEW.h = heightPx;
+  for (const m of OUTLINE_MATS) { m.uniforms!.uOutlinePx.value = px; m.uniforms!.uOutlineViewH.value = heightPx; }
+}
+function patchOutline(mat: OutlineMat) {
+  if (!mat.isOutline || typeof mat.vertexShader !== "string" || !mat.uniforms) return; // outline pass of an MToon material only
+  if (mat.vertexShader.includes("uOutlineViewH")) { trackOutline(mat); return; } // already patched (shared material)
+  if (!mat.vertexShader.includes(OUTLINE_DECL) || !mat.vertexShader.includes(OUTLINE_LINE)) return; // a three-vrm version we don't know: leave it alone
+  mat.vertexShader = mat.vertexShader.replace(OUTLINE_DECL, OUTLINE_DECL_NEW).replace(OUTLINE_LINE, OUTLINE_LINE_NEW);
+  mat.uniforms.uOutlinePx = { value: OUTLINE_VIEW.px }; mat.uniforms.uOutlineViewH = { value: OUTLINE_VIEW.h };
+  mat.needsUpdate = true; trackOutline(mat); // recompile
+}
 let MSAA = true; // does the canvas have multisampling? (default yes; Hall3D reports the truth before any model loads)
 export function setMsaa(on: boolean) { MSAA = on; } // called once when the canvas is created
 async function sharpen(scene: THREE.Object3D) {
@@ -349,6 +389,7 @@ async function sharpen(scene: THREE.Object3D) {
         mat.fragmentShader = (mat.fragmentShader as string).replace(ALPHA_CHUNK, MSAA ? SOFT_ALPHA_TEST : HARD_ALPHA_TEST); // antialiased edge with MSAA, plain cut-off without; both darken the edge fringe
         mat.alphaToCoverage = MSAA; mat.needsUpdate = true; // MSAA turns the soft edge into partial coverage
       }
+      patchOutline(mat as OutlineMat); // outline pass: minimum pixel width so the line never breaks into dashes
       if (typeof mat.fragmentShader === "string" && (mat.fragmentShader as string).includes(MATCAP_LINE)) { // painted highlight layer (hair gloss, cloth sheen)
         mat.fragmentShader = (mat.fragmentShader as string).replace(MATCAP_LINE, MATCAP_EDGE_FADE); // same look face-on, no halo on the outline
         mat.needsUpdate = true; // recompile
@@ -461,6 +502,7 @@ function tintMesh(m: THREE.Mesh, tint: { skin?: THREE.Color; hair?: THREE.Color;
     const key = `${mat.uuid}:${c.getHexString()}`; // variant id
     if (!tintCache.has(key)) {
       const v = mat.clone() as THREE.Material & { color?: THREE.Color; shadeColorFactor?: THREE.Color }; // MToon copy
+      trackOutline(v); // a tinted outline pass must follow the canvas size too
       v.color?.multiply(c); // lit colour
       v.shadeColorFactor?.multiply(c); // shadow colour
       (v as Toon).emissive?.multiply(c); // face fill glow follows the skin tint too
