@@ -128,6 +128,26 @@ function mergeByMaterial(root: THREE.Object3D) {
 
 
 
+// Toon outlines (the dark line round the face, chin and hair) are off: they read as a harsh black line at the
+// small size people have in the hall, and the pass redraws every hair and face triangle a second time. Set
+// to true to bring back the old look (hair + face only); patchOutline() below keeps it unbroken at a distance.
+const OUTLINES = false;
+
+// Remove the outline passes from a mesh but keep every surface pass. A VRM mesh can hold several surfaces
+// (the face: skin, lashes, eyeline, brows...), each followed by its own outline copy, so this rebuilds the
+// material list and the draw groups without the outline entries instead of just keeping the first material.
+function dropOutlines(m: THREE.Mesh) {
+  const mats = m.material as THREE.Material[]; // surfaces + outlines
+  const remap = new Map<number, number>(); // old material index -> new index (surfaces only)
+  const kept: THREE.Material[] = [];
+  mats.forEach((x, i) => { if (!(x as { isOutline?: boolean }).isOutline) { remap.set(i, kept.length); kept.push(x); } });
+  if (kept.length === mats.length || kept.length === 0) return; // nothing to drop (or unexpected layout): leave as is
+  const groups = m.geometry.groups.filter((g) => remap.has(g.materialIndex ?? -1)).map((g) => ({ start: g.start, count: g.count, materialIndex: remap.get(g.materialIndex!)! }));
+  m.geometry.clearGroups();
+  if (kept.length > 1) groups.forEach((g) => m.geometry.addGroup(g.start, g.count, g.materialIndex)); // several surfaces keep their ranges
+  m.material = kept.length === 1 ? kept[0] : kept; // one surface: plain material, whole mesh
+}
+
 // Load (once) and prepare a model.
 export function loadTemplate(file: string): Promise<Template> {
   const url = `/models/${file}`; // served from public/
@@ -139,9 +159,11 @@ export function loadTemplate(file: string): Promise<Template> {
     const vrm = gltf.userData.vrm as VRM; // the VRM wrapper
     VRMUtils.removeUnnecessaryVertices(gltf.scene); // drop unused verts
     VRMUtils.combineSkeletons(gltf.scene); // one skeleton for all meshes
-    gltf.scene.traverse((o) => { // keep toon outlines only on hair + face (where they read as anime); drop them on body/clothes to halve those triangles
+    gltf.scene.traverse((o) => { // toon outlines: off everywhere by default; with OUTLINES on they stay only on hair + face and are dropped on body/clothes to halve those triangles
       const m = o as THREE.Mesh; // candidate
-      if (m.isMesh && Array.isArray(m.material) && /CLOTH|Body/.test(m.material[0].name)) { m.material = m.material[0]; m.geometry.clearGroups(); } // surface only
+      if (!m.isMesh || !Array.isArray(m.material)) return; // no outline pass here
+      if (OUTLINES && !/CLOTH|Body/.test(m.material[0].name)) return; // keep hair + face outlines when switched on
+      dropOutlines(m); // surface passes only
     });
     mergeByMaterial(gltf.scene); // fewer draw calls
     improveTextures(gltf.scene);
