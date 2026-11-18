@@ -38,7 +38,7 @@ export function DeskKitDialog(props: {
     setSpots(nextSpots); // show right away
     setMsg("Saving…"); // quiet
     const ok = await props.onSave(nextSpots); // save
-    if (ok) setMsg("Saved. It goes with you to any desk."); // done
+    if (ok) setMsg(item ? "Saved. It goes with you to any desk." : "Taken off. It stays on your shelf for whenever you want it."); // done
     else { setSpots(before); setMsg("Couldn’t save that just now. Try again?"); } // put it back
   };
 
@@ -67,10 +67,14 @@ export function DeskKitDialog(props: {
                   {DESK_SPOTS.map((s) => (
                     <label key={s.id} className="kit-spot" style={{ gridColumn: CELL[s.id].col, gridRow: CELL[s.id].row }}>
                       <span className="small muted">{s.label}</span>
-                      <select value={spots[s.id] ?? ""} onChange={(e) => { void pick(s.id, e.target.value as DeskItemId | ""); }}>
-                        <option value="">Empty</option>
-                        {unlocked.map((id) => <option key={id} value={id}>{ITEM_BY_ID.get(id)!.name}</option>)}
-                      </select>
+                      <span className="kit-pick">
+                        <select value={spots[s.id] ?? ""} onChange={(e) => { void pick(s.id, e.target.value as DeskItemId | ""); }}>
+                          <option value="">Empty</option>
+                          {unlocked.map((id) => <option key={id} value={id}>{ITEM_BY_ID.get(id)!.name}</option>)}
+                        </select>
+                        {/* One tap to take an item off the desk (it stays on your shelf) */}
+                        {spots[s.id] && <button type="button" className="ghost small kit-off" aria-label={`Take the ${ITEM_BY_ID.get(spots[s.id]!)!.name.toLowerCase()} off the desk`} title="Take off (stays on your shelf)" onClick={(e) => { e.preventDefault(); void pick(s.id, ""); }}>×</button>}
+                      </span>
                     </label>
                   ))}
                 </div>
@@ -80,7 +84,7 @@ export function DeskKitDialog(props: {
             {/* One gentle line about what comes next, and what counts */}
             <p className="small muted" style={{ marginTop: 12 }}>
               {next ? `Next: ${next.item.name.toLowerCase()} after ${next.at} study day${next.at === 1 ? "" : "s"}.` : `All ${DESK_ITEMS.length} items are on your shelf.`}{" "}
-              A study day is a sitting of {STUDY_DAY_MIN_MINUTES} minutes or more that ends with a recap. Items stay yours for good.
+              A study day is a sitting of {STUDY_DAY_MIN_MINUTES} minutes or more that ends with a recap. Items stay yours for good, placed or not, and an empty desk is fine too.
             </p>
           </>
         )}
@@ -92,14 +96,16 @@ export function DeskKitDialog(props: {
   );
 }
 
-// The small, calm note after a recap when something new unlocked.
+// The small, calm note after a recap when something new unlocked. "Place it"
+// places only one item (the newest); anything else waits on the shelf.
 export function UnlockNote(props: { items: DeskItemId[]; onPlace: () => void; onLater: () => void }) {
   const names = props.items.map((id) => ITEM_BY_ID.get(id)?.name.toLowerCase() ?? id); // e.g. ["small plant"]
-  const what = names.length === 1 ? `A ${names[0]} is` : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]} are`; // plain sentence
+  const newest = names[names.length - 1]; // the one "Place it" puts on the desk
+  const what = names.length === 1 ? `A ${names[0]} is` : `The ${names.slice(0, -1).join(", ")} and ${newest} are`; // plain sentence
   return (
     <div className="notes">
       <div className="note" role="status">
-        <div>{what} now on your shelf. {names.length === 1 ? "Place it?" : "Place them?"}</div>
+        <div>{what} now on your shelf. {names.length === 1 ? "Place it?" : `Place the ${newest}?`}</div>
         <div className="row" style={{ marginTop: 8 }}>
           <button className="sage small" onClick={props.onPlace}>Place it</button>
           <button className="ghost small" onClick={props.onLater}>Later</button>

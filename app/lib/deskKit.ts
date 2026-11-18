@@ -11,6 +11,10 @@
 //  - Items unlock by total study days and are never taken away. No streaks.
 //  - Unlocks and the 5-spot arrangement belong to the person and move with them
 //    to any desk. Others see the arrangement of whoever sits at a desk.
+//  - Users can freely place or remove any unlocked item. An unequipped item stays
+//    unlocked forever and can be placed again at any time. Only currently placed
+//    items appear on the desk for others to see. An empty or sparse desk is a
+//    valid choice (nothing ever asks you to fill a spot).
 // No three.js here, so the 2D view and dialogs can import it cheaply.
 
 import { hasSupabase, supabase } from "./backend/client"; // real backend (if configured)
@@ -25,7 +29,7 @@ export const DESK_ITEMS = [
   { id: "plant", name: "Small plant", days: 1, line: "A seedling in a glazed pot" }, // first reward, after the first study day
   { id: "mug", name: "Mug", days: 3, line: "A sage ceramic mug on a cork coaster" }, // day 3
   { id: "books", name: "Book stack", days: 7, line: "Three cloth-bound books with a ribbon" }, // day 7
-  { id: "lamp", name: "Reading lamp", days: 14, line: "A small brass lamp with a paper shade" }, // day 14
+  { id: "pencils", name: "Pencil cup", days: 14, line: "A warm brass cup holding a few pencils" }, // day 14
   { id: "clock", name: "Desk clock", days: 21, line: "A walnut mantel clock" }, // day 21
   { id: "cat", name: "Sleeping cat", days: 30, line: "A curled-up ceramic cat" }, // day 30
   { id: "notebook", name: "Notebook & pen", days: 45, line: "A leather notebook with a brass pen" }, // day 45

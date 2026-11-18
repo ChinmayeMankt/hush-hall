@@ -1,11 +1,12 @@
 "use client"; // three.js runs in the browser only
 
-// Desk-kit props (plant, mug, books, lamp, clock, cat, notebook) drawn on the
+// Desk-kit props (plant, mug, books, pencil cup, clock, cat, notebook) drawn on the
 // desks of seated people who placed them. Each prop is built once from simple
 // three.js shapes, merged into ONE geometry with baked vertex colours, and drawn
 // with ONE shared Lambert material (same lighting model as the desks). All copies
 // of a prop across the hall are one instanced draw call, so the whole kit costs
-// at most 8 draw calls (7 props + the lamp bulbs) however many desks show it.
+// at most 7 draw calls (one per prop) however many desks show it. Only items a
+// person has placed right now are drawn; unplaced (but unlocked) items never show.
 
 import { useLayoutEffect, useMemo, useRef } from "react"; // memo + instance matrices
 import * as THREE from "three"; // geometry, colours, matrices
@@ -33,7 +34,7 @@ export const SPOT_POS: Record<SpotId, { x: number; z: number; y: number; turn: n
 // ---- Palette: warm wood, glazed ceramic, paper, soft green, brass ----
 const C = {
   cream: "#e9dcc2", // glazed ceramic / paper
-  paper: "#f2e8d2", // page edges, lamp shade
+  paper: "#f2e8d2", // page edges, sharpened pencil wood
   sage: "#93ad94", // soft green glaze
   leaf: "#6e9a5a", // leaves
   leafLight: "#8fb66f", // young leaves
@@ -123,13 +124,24 @@ const BUILD: Record<DeskItemId, () => THREE.BufferGeometry> = {
     ...book(0.165, 0.026, 0.12, C.ochre, 0.062, -0.07), // top
     { g: new THREE.BoxGeometry(0.012, 0.002, 0.05), c: C.ribbon, p: [0.03, 0.03, -0.088], r: [0.9, 0, 0] }, // ribbon hanging from the bottom book
   ]),
-  // Small brass reading lamp with a paper shade (a second, softer light beside the banker's lamp).
-  lamp: () => bake([
-    { g: lathe([[0, 0], [0.05, 0], [0.052, 0.006], [0.044, 0.016], [0.012, 0.02], [0, 0.02]], 16), c: C.brass }, // weighted base
-    { g: new THREE.CylinderGeometry(0.005, 0.006, 0.2, 8), c: C.brass, p: [0, 0.12, 0] }, // stem
-    { g: new THREE.CylinderGeometry(0.012, 0.01, 0.018, 10), c: C.brass, p: [0, 0.225, 0] }, // bulb holder
-    { g: lathe([[0.075, 0.18], [0.072, 0.186], [0.045, 0.272], [0.042, 0.278]], 18), c: C.paper }, // open paper shade (bulb shows below)
-    { g: new THREE.TorusGeometry(0.074, 0.0025, 4, 18), c: C.brass, p: [0, 0.181, 0], r: [Math.PI / 2, 0, 0] }, // brass rim
+  // Warm brass pencil cup holding four wooden pencils, tips up, leaning a little apart.
+  pencils: () => bake([
+    { g: lathe([[0, 0], [0.032, 0], [0.034, 0.004], [0.034, 0.09], [0.036, 0.094], [0.031, 0.094], [0.03, 0.012], [0, 0.012]], 16), c: C.brass }, // brass cup with a rolled lip
+    ...[0, 1, 2, 3].flatMap((i): Part[] => {
+      const a = i * 1.7 + 0.4; // which way it leans (around the cup)
+      const t = 0.14 + (i % 2) * 0.08; // how far it leans
+      const len = 0.16 - (i % 3) * 0.012; // slightly different lengths (used pencils)
+      const dir = new THREE.Vector3(Math.sin(t) * Math.sin(a), Math.cos(t), Math.sin(t) * Math.cos(a)); // pencil axis
+      const rot = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir)); // turn +y onto the axis
+      const base = new THREE.Vector3(Math.sin(a + Math.PI) * 0.012, 0.014, Math.cos(a + Math.PI) * 0.012); // foot inside the cup, opposite the lean
+      const at = (d: number): [number, number, number] => [base.x + dir.x * d, base.y + dir.y * d, base.z + dir.z * d]; // point along the pencil
+      const r: [number, number, number] = [rot.x, rot.y, rot.z]; // shared rotation
+      return [
+        { g: new THREE.CylinderGeometry(0.0055, 0.0055, len, 6), c: [C.ochre, C.green, C.oxblood, C.walnutLight][i], p: at(len / 2), r }, // painted hexagonal body
+        { g: new THREE.ConeGeometry(0.0055, 0.018, 6), c: C.paper, p: at(len + 0.009), r }, // sharpened wood
+        { g: new THREE.ConeGeometry(0.0016, 0.006, 6), c: C.ink, p: at(len + 0.0155), r }, // graphite tip
+      ];
+    }),
   ]),
   // Walnut mantel clock with a cream face and brass bezel, facing the student.
   clock: () => bake([
@@ -162,9 +174,6 @@ const BUILD: Record<DeskItemId, () => THREE.BufferGeometry> = {
   ]),
 };
 
-// Lamp bulb glow (inside the reading lamp shade), same warm colour as the banker's lamps.
-const BULB_Y = 0.2; // bulb height inside the shade
-
 // Built geometries, shared by every desk (created on first use).
 const cache = new Map<DeskItemId, THREE.BufferGeometry>(); // item -> geometry
 function geometryFor(id: DeskItemId): THREE.BufferGeometry {
@@ -176,7 +185,7 @@ function geometryFor(id: DeskItemId): THREE.BufferGeometry {
 // One material for every prop (baked colours, scene lighting).
 let sharedMat: THREE.MeshLambertMaterial | null = null; // created on first use
 function material(): THREE.MeshLambertMaterial {
-  if (!sharedMat) sharedMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }); // no textures; both sides so the open lamp shade shows from below
+  if (!sharedMat) sharedMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }); // no textures; both sides so thin open shapes never show a hole
   return sharedMat; // shared
 }
 
@@ -223,15 +232,10 @@ export default function DeskKit({ seatMap }: { seatMap: Map<string, Member> }) {
     }
     return [...by.entries()]; // [item, copies][]
   }, [seatMap]);
-  const bulbs = useMemo(() => groups.find(([id]) => id === "lamp")?.[1] ?? [], [groups]); // lamp copies (for the glow)
-  const bulbGeo = useMemo(() => new THREE.SphereGeometry(0.02, 8, 6), []); // small bulb
-  const bulbMat = useMemo(() => new THREE.MeshBasicMaterial({ color: "#ffe2a0", toneMapped: false }), []); // unlit warm glow, like the banker's lamps
-  useLayoutEffect(() => () => { bulbGeo.dispose(); bulbMat.dispose(); }, [bulbGeo, bulbMat]); // free on unmount
 
   return (
     <group>
       {groups.map(([id, at]) => <Batch key={`${id}:${at.length}`} geo={geometryFor(id)} mat={material()} at={at} />)}
-      {bulbs.length > 0 && <Batch key={`bulb:${bulbs.length}`} geo={bulbGeo} mat={bulbMat} at={bulbs} lift={BULB_Y} />}
     </group>
   );
 }

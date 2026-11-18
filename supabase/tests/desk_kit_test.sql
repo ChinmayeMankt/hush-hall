@@ -105,12 +105,25 @@ do $$ declare r jsonb; begin
   r := set_desk_layout('{"1": "plant", "4": "mug", "2": null, "3": ""}');
   if r <> '{"1": "plant", "4": "mug"}'::jsonb then raise exception 'FAIL layout not saved cleanly: %', r; end if;
 end $$;
-do $$ begin perform set_desk_layout('{"1": "lamp"}'); raise exception 'FAIL locked item placed'; exception when others then if sqlerrm like 'FAIL%' then raise; end if; end $$;
+do $$ begin perform set_desk_layout('{"1": "pencils"}'); raise exception 'FAIL locked item placed'; exception when others then if sqlerrm like 'FAIL%' then raise; end if; end $$;
 do $$ begin perform set_desk_layout('{"1": "plant", "2": "plant"}'); raise exception 'FAIL item placed twice'; exception when others then if sqlerrm like 'FAIL%' then raise; end if; end $$;
 do $$ begin perform set_desk_layout('{"6": "plant"}'); raise exception 'FAIL unknown spot'; exception when others then if sqlerrm like 'FAIL%' then raise; end if; end $$;
 do $$ begin perform set_desk_layout('{"1": 5}'); raise exception 'FAIL non-text item'; exception when others then if sqlerrm like 'FAIL%' then raise; end if; end $$;
 do $$ begin perform set_desk_layout('[]'); raise exception 'FAIL non-object layout'; exception when others then if sqlerrm like 'FAIL%' then raise; end if; end $$;
 do $$ begin if (select spots from desk_layouts where user_id = auth.uid()) <> '{"1": "plant", "4": "mug"}'::jsonb then raise exception 'FAIL failed call changed the layout'; end if; end $$;
+
+-- 7b. Removing is free: an empty desk is valid, removed items stay unlocked and can go back any time.
+do $$ declare r jsonb; k jsonb; begin
+  r := set_desk_layout('{}'); -- clear everything
+  if r <> '{}'::jsonb then raise exception 'FAIL empty desk not allowed: %', r; end if;
+  k := my_desk_kit();
+  if k->'unlocked' <> '["plant", "mug"]'::jsonb then raise exception 'FAIL removing withered an unlock: %', k; end if;
+  if k->'spots' <> '{}'::jsonb then raise exception 'FAIL empty layout not kept: %', k; end if;
+  r := set_desk_layout('{"4": "mug"}'); -- a sparse desk: one item
+  if r <> '{"4": "mug"}'::jsonb then raise exception 'FAIL sparse desk not saved: %', r; end if;
+  r := set_desk_layout('{"1": "plant", "4": "mug"}'); -- put the plant back
+  if r <> '{"1": "plant", "4": "mug"}'::jsonb then raise exception 'FAIL re-placing a removed item: %', r; end if;
+end $$;
 
 -- 8. No direct writes: counters, unlocks, layouts and the recap marker are function-only.
 do $$ begin insert into study_days (user_id, day) values (auth.uid(), current_date + 1); raise exception 'FAIL wrote a study day directly'; exception when others then if sqlerrm like 'FAIL%' then raise; end if; end $$;
@@ -160,7 +173,7 @@ end $$;
 
 -- 12. The SQL catalogue matches app/lib/deskKit.ts (update both together).
 do $$ begin
-  if (select string_agg(item || ':' || days, ',' order by days) from desk_kit_catalog()) <> 'plant:1,mug:3,books:7,lamp:14,clock:21,cat:30,notebook:45' then raise exception 'FAIL catalogue changed without updating the test and app'; end if;
+  if (select string_agg(item || ':' || days, ',' order by days) from desk_kit_catalog()) <> 'plant:1,mug:3,books:7,pencils:14,clock:21,cat:30,notebook:45' then raise exception 'FAIL catalogue changed without updating the test and app'; end if;
 end $$;
 
 select 'ALL_DESK_KIT_RULES_OK' as result; -- every check passed

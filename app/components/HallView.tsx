@@ -519,20 +519,15 @@ export default function HallView({ hallId }: { hallId: string }) {
     return true; // done
   };
 
-  // "Place it?": put the new item in the first empty spot, then open the desk so it can be moved.
+  // "Place it?": put ONE new item (the newest) in the first empty spot, then open the
+  // desk so it can be moved or taken off. Never replaces anything; a full desk stays as it is.
   const placeNew = async () => {
     const items = unlocked ?? []; // just unlocked
+    const one = items[items.length - 1]; // only the newest item is placed
     setUnlocked(null); // close the note
     setFresh(items); // mark them "new" in the dialog
-    if (kit) {
-      const spots: DeskSpots = { ...kit.spots }; // copy
-      for (const id of items) { // each new item
-        if (DESK_SPOTS.some((s) => spots[s.id] === id)) continue; // already placed
-        const free = DESK_SPOTS.find((s) => !spots[s.id]); // first empty spot
-        if (free) spots[free.id] = id; // place it
-      }
-      await saveKit(spots); // save (quietly ignored if it fails; the dialog shows the real state)
-    }
+    const free = kit ? DESK_SPOTS.find((s) => !kit.spots[s.id]) : undefined; // first empty spot, if any
+    if (kit && one && free && !DESK_SPOTS.some((s) => kit.spots[s.id] === one)) await saveKit({ ...kit.spots, [free.id]: one }); // place just that one (quietly ignored if it fails; the dialog shows the real state)
     setKitOpen(true); // let them move it
   };
 

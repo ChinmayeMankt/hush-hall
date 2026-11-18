@@ -6,10 +6,14 @@
 --    step (finish_sitting). At most one study day per local calendar day.
 --  * Minutes that count toward the kit are capped at 150 (2.5 h) per local day.
 --    Private stats keep using sittings.focused_minutes, uncapped.
---  * Items unlock by total study days: plant 1, mug 3, books 7, lamp 14,
+--  * Items unlock by total study days: plant 1, mug 3, books 7, pencils 14,
 --    clock 21, cat 30, notebook 45. Unlocks are never removed. No streaks.
 --  * Unlocks and the 5-spot arrangement belong to the person, not to a desk.
 --    Others only see the arrangement of someone currently seated.
+--  * Users can freely place or remove any unlocked item. An unequipped item stays
+--    unlocked forever (removing it only edits desk_layouts, never desk_unlocks) and
+--    can be placed again at any time. Only currently placed items appear for others.
+--    An empty or sparse desk is a valid choice ('{}' is a normal layout).
 -- Clients cannot write any of these tables directly; only the functions below do.
 
 -- ---------------------------------------------------------------------------
@@ -20,7 +24,7 @@
 create or replace function public.desk_kit_catalog()
 returns table (item text, days int)
 language sql immutable set search_path = public as $$
-  values ('plant', 1), ('mug', 3), ('books', 7), ('lamp', 14), ('clock', 21), ('cat', 30), ('notebook', 45); -- id, study days needed
+  values ('plant', 1), ('mug', 3), ('books', 7), ('pencils', 14), ('clock', 21), ('cat', 30), ('notebook', 45); -- id, study days needed
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -47,10 +51,16 @@ create table if not exists public.study_days (
 -- Items a person has unlocked. Rows are only ever added (never removed, never withered).
 create table if not exists public.desk_unlocks (
   user_id uuid not null references public.profiles (id) on delete cascade, -- owner (account deletion removes these)
-  item text not null check (item in ('plant', 'mug', 'books', 'lamp', 'clock', 'cat', 'notebook')), -- catalogue id
+  item text not null, -- catalogue id (checked by desk_unlocks_item_ok below)
   unlocked_at timestamptz not null default now(), -- when it unlocked
   primary key (user_id, item) -- once per item
 );
+
+-- Item ids must be in the catalogue (named, so a re-run replaces it if the list changes).
+alter table public.desk_unlocks drop constraint if exists desk_unlocks_item_check; -- inline check from an earlier draft
+alter table public.desk_unlocks drop constraint if exists desk_unlocks_item_ok; -- re-runnable
+alter table public.desk_unlocks add constraint desk_unlocks_item_ok
+  check (item in ('plant', 'mug', 'books', 'pencils', 'clock', 'cat', 'notebook')); -- same ids as desk_kit_catalog()
 
 -- Where each placed item sits: {"1": "plant", "3": "mug"} (spots 1-5, each item at most once).
 create table if not exists public.desk_layouts (
