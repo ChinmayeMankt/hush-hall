@@ -257,3 +257,14 @@ button.note-open { display: block; width: 100%; text-align: left; background: no
 .tag3d-ago { font-size: 10px; color: #6f5e4e; } /* "sat down X min ago" tag line (3D) */
 .tag3d.companion { border-style: dashed; } /* scripted company reads as clearly different at a glance */
 @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; opacity: 1; } } /* no pulse when the OS asks for stillness */
+
+/* Desk kit: shelf of unlocked items and the five spots (quiet, paper-like) */
+.dialog.desk-kit { width: min(520px, 100%); max-height: min(86vh, 720px); overflow: auto; } /* a little wider for the desk drawing */
+.kit-shelf { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; } /* unlocked items */
+.kit-item { border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 0.85rem; background: #fffdf3; } /* one item */
+.kit-desk { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #f3e6cf; } /* the desk top */
+.kit-spot { display: flex; flex-direction: column; gap: 4px; margin: 0; } /* one spot: label + choice */
+.kit-spot select { width: 100%; min-width: 0; } /* fill the cell */
+.kit-spot .small { line-height: 1.2; } /* two-line labels stay tidy */
+.kit-work { display: grid; place-items: center; border: 1px dashed var(--line); border-radius: 8px; min-height: 52px; } /* where your own book lies */
+.kit-side { align-self: end; } /* lamp / book side captions */

@@ -62,7 +62,7 @@ Vercel says Hobby is for personal, non-commercial use; move to Pro before Hush H
 
 ## Local checks without the cloud
 
-- Database rules: `supabase/tests/local_stub.sql` + the migration + `supabase/tests/rules_test.sql` on any scratch Postgres 15+ (prints `ALL_RULES_OK`); then `0002_hall_walkers.sql` + `supabase/tests/walkers_test.sql` (prints `ALL_WALKER_RULES_OK`); then `0003_floor_and_looks.sql` + `supabase/tests/floor_looks_test.sql` (prints `ALL_FLOOR_LOOK_RULES_OK`); then `0004_desk_notes.sql` + `supabase/tests/desk_notes_test.sql` (prints `ALL_DESK_NOTE_RULES_OK`); then `0005_desk_batch2.sql` + `supabase/tests/desk_batch2_test.sql` (prints `ALL_DESK_BATCH2_RULES_OK`).
+- Database rules: `supabase/tests/local_stub.sql` + the migration + `supabase/tests/rules_test.sql` on any scratch Postgres 15+ (prints `ALL_RULES_OK`); then `0002_hall_walkers.sql` + `supabase/tests/walkers_test.sql` (prints `ALL_WALKER_RULES_OK`); then `0003_floor_and_looks.sql` + `supabase/tests/floor_looks_test.sql` (prints `ALL_FLOOR_LOOK_RULES_OK`); then `0004_desk_notes.sql` + `supabase/tests/desk_notes_test.sql` (prints `ALL_DESK_NOTE_RULES_OK`); then `0005_desk_batch2.sql` + `supabase/tests/desk_batch2_test.sql` (prints `ALL_DESK_BATCH2_RULES_OK`); then `0006_desk_kit.sql` + `supabase/tests/desk_kit_test.sql` (prints `ALL_DESK_KIT_RULES_OK`) and `supabase/tests/account_delete_test.sql` (prints `ALL_DELETE_RULES_OK`).
 - Voice grants were checked against a local `livekit-server --dev`: a second participant received the microphone track and a camera publish was refused.
 - Account deletion: `account_delete_test.sql` after migrations 0001–0005 (prints `ALL_DELETE_RULES_OK`): deleting the login leaves no rows about that person, including desk notes and timetable slots.
 

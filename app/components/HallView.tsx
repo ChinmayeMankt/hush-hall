@@ -13,6 +13,8 @@ import { NotesDialog } from "./NotesDialog"; // private desk notes
 import { StatsDialog } from "./StatsDialog"; // today / this-week hours
 import { TimetableDialog } from "./TimetableDialog"; // private weekly plan
 import { SpotifyPlayer } from "./SpotifyPlayer"; // optional Spotify embed
+import { DeskKitDialog, UnlockNote } from "./DeskKitDialog"; // quiet desk kit: place unlocked items, calm note after a recap
+import { DESK_SPOTS, loadMyDeskKit, saveDeskSpots, type DeskItemId, type DeskKit, type DeskSpots } from "@/lib/deskKit"; // study days + desk items
 import { HALLS, ROWS, DESKS_PER_ROW, demoMembers, hallById } from "@/lib/halls"; // hall data
 import { getPresence, type JoinRequest, type Member, type Phase, type WalkState } from "@/lib/presence"; // presence layer
 import { ENTRANCE, standSpot } from "./three/walk"; // where a walk starts (tiny module: no three.js)
@@ -20,7 +22,7 @@ import { PLACE_BY_SEAT } from "./three/layout"; // seat -> chair position (tiny 
 import type { Profile } from "@/lib/profile"; // profile shape
 import { parseLook, lookString, HAS_NECK } from "./three/looks"; // wardrobe (tiny module: no three.js)
 import { modelFor } from "./three/models"; // which character I am (for the wardrobe's neck option)
-import { loadAccount, saveProfile, saveLook, sitDown, heartbeat, standUp as saveStandUp, releaseOnUnload, usualSeat, setUsualSeat, fileReport, type ReportReason } from "@/lib/account"; // account: Supabase or demo storage
+import { loadAccount, saveProfile, saveLook, sitDown, heartbeat, standUpWithRecap, releaseOnUnload, usualSeat, setUsualSeat, fileReport, type ReportReason } from "@/lib/account"; // account: Supabase or demo storage
 import { hasSupabase, accessToken } from "@/lib/backend/client"; // real backend?
 import { loadMyRoom, type Room } from "@/lib/rooms"; // small study rooms
 import RoomPanel from "./RoomPanel"; // room members, leave/remove, voice
@@ -107,6 +109,10 @@ export default function HallView({ hallId }: { hallId: string }) {
   const [notesOpen, setNotesOpen] = useState(false); // private desk-notes panel
   const [statsOpen, setStatsOpen] = useState(false); // study hours panel
   const [planOpen, setPlanOpen] = useState(false); // timetable panel
+  const [kit, setKit] = useState<DeskKit | null>(null); // my desk kit: study days, unlocked items, arrangement (moves with me)
+  const [kitOpen, setKitOpen] = useState(false); // "Your desk" dialog
+  const [unlocked, setUnlocked] = useState<DeskItemId[] | null>(null); // items that just unlocked (shown calmly after a recap only)
+  const [fresh, setFresh] = useState<DeskItemId[]>([]); // the same items, marked "new" in the desk dialog
 
   const phaseRef = useRef(phase); // latest phase for presence callbacks
   phaseRef.current = phase; // keep it current every render
@@ -129,6 +135,7 @@ export default function HallView({ hallId }: { hallId: string }) {
       setProfile(p); // store it
       setPlan({ f: p.focusMin, b: p.breakMin }); // last rhythm
       setUsual(await usualSeat(hallId)); // returning seat
+      loadMyDeskKit().then((k) => { if (live) setKit(k); }); // my desk items (empty kit if the database isn't updated yet)
       const r = await loadMyRoom(p.id); // still in a study room from before?
       if (live && r) setRoom(r); // show it
     }).catch(() => { if (live) setLoadFailed(true); }); // don't hang on "Walking in…"
@@ -203,9 +210,10 @@ export default function HallView({ hallId }: { hallId: string }) {
       floor: !!walk && !seat && floor !== null, // sitting on the floor to study
       satDownAt: seat && satAt ? satAt : undefined, // when I sat down, so others can show "sat down X min ago"
       look: profile.look ?? "", // wardrobe
+      deskKit: kit?.spots, // my placed desk items (drawn on whatever desk I sit at)
       lastSeen: Date.now(), // refreshed by the provider
     };
-  }, [profile, seat, topic, phase, phaseEndsAt, walk, floor, satAt]); // walk/floor included so others learn when I start/stop walking or sit on the floor
+  }, [profile, seat, topic, phase, phaseEndsAt, walk, floor, satAt, kit]); // walk/floor included so others learn when I start/stop walking or sit on the floor
 
   // Join the hall once my profile is ready; leave on unmount or tab close.
   const joined = useRef(false); // guard against double join
@@ -474,6 +482,7 @@ export default function HallView({ hallId }: { hallId: string }) {
     patchProfile({ focusMin: f, breakMin: b }); // remember rhythm
     if (remember) { setUsualSeat(hallId, at, profile.id); setUsual(at); } // returning seat
     setSitAt(null); // close dialog
+    setUnlocked(null); // an unread "new item" note never follows me into focus
     setWalk(null); // sitting ends a walk (the camera eases into the seat view)
     startPhase("focus", f); // start focusing right away
     setSatAt(Date.now()); // note when I sat, for the "sat down X min ago" label
@@ -487,7 +496,8 @@ export default function HallView({ hallId }: { hallId: string }) {
     const from = seat; // the desk I'm leaving (to stand just behind its chair)
     const extra = bankFocus(); // count the running focus phase
     const wanted = Math.round((focusedMs + extra) / 60000); // total (virtual in demo) minutes
-    const minutes = await saveStandUp(sittingId ?? "", wanted, note, { hallId, seat, topic }); // save history (database caps at real time)
+    const done = await standUpWithRecap(sittingId ?? "", wanted, note, { hallId, seat, topic }); // save history (database caps at real time) and record the study day if it qualifies
+    const minutes = done.minutes; // what was saved
     setRecapOpen(false); // close recap
     setSeat(null); setSittingId(null); setTopic(""); setPhase("idle"); setPhaseEndsAt(null); setFocusedMs(0); // back to the aisle (a study room stays open until you leave it)
     setSatAt(null); // no desk, no "sat down" label
@@ -496,6 +506,34 @@ export default function HallView({ hallId }: { hallId: string }) {
     setRecapThen(null); // reset the choice
     if (thenWalk) setWalk({ ...standSpot(from), n: Date.now(), pitch: 0.55 }); // step out behind my chair and walk on (the desk is already free); camera a little higher to see over the desk
     say(minutes > 0 ? `Saved: ${minutes} min on ${topic}.` : "Saved. See you at your desk soon."); // quiet confirmation
+    if (done.newItems.length) { setKit(await loadMyDeskKit()); setUnlocked(done.newItems); } // something new: refresh the shelf, then a calm note (the session has ended)
+    else if (done.counted) setKit((k) => (k ? { ...k, studyDays: done.studyDays } : k)); // keep the quiet "Next:" line current
+  };
+
+  // Save my desk arrangement (checked by the database; moves with me to any desk).
+  const saveKit = async (spots: DeskSpots) => {
+    if (!kit) return false; // not loaded
+    const saved = await saveDeskSpots(spots, kit.unlocked); // only unlocked items, each once
+    if (!saved) return false; // didn't go through
+    setKit({ ...kit, spots: saved }); // others see it on my desk at the next presence update
+    return true; // done
+  };
+
+  // "Place it?": put the new item in the first empty spot, then open the desk so it can be moved.
+  const placeNew = async () => {
+    const items = unlocked ?? []; // just unlocked
+    setUnlocked(null); // close the note
+    setFresh(items); // mark them "new" in the dialog
+    if (kit) {
+      const spots: DeskSpots = { ...kit.spots }; // copy
+      for (const id of items) { // each new item
+        if (DESK_SPOTS.some((s) => spots[s.id] === id)) continue; // already placed
+        const free = DESK_SPOTS.find((s) => !spots[s.id]); // first empty spot
+        if (free) spots[free.id] = id; // place it
+      }
+      await saveKit(spots); // save (quietly ignored if it fails; the dialog shows the real state)
+    }
+    setKitOpen(true); // let them move it
   };
 
   // Send a join request (demo students answer by themselves after a moment).
@@ -584,6 +622,7 @@ export default function HallView({ hallId }: { hallId: string }) {
           {webgl && (
             <button className="ghost small" onClick={() => chooseView(view === "3d" ? "2d" : "3d")}>{view === "3d" ? "Simple view" : "3D hall"}</button>
           )}
+          {!(view === "3d" && webgl) && phase !== "focus" && <button className="ghost small" onClick={() => setKitOpen(true)} title="Place the items you’ve unlocked">Desk</button>}
           {/* Hall hopping: only while standing, so a sitting always ends with a recap */}
           <select aria-label="Move to another hall" value={hallId} disabled={!!seat} title={seat ? "Stand up to hop halls" : "Move to another hall"} onChange={(e) => { window.location.href = `/hall/${e.target.value}`; }} style={{ width: "auto" }}>
             {HALLS.map((h) => <option key={h.id} value={h.id} disabled={!!h.comingSoon}>{h.name}{h.comingSoon ? " (coming soon)" : ""}</option>)}
@@ -616,6 +655,7 @@ export default function HallView({ hallId }: { hallId: string }) {
               : <button className="ghost small" onClick={() => setFloorAsk(true)} title="Sit on the floor here to study (G)">Sit on the floor</button>)}
             {walking && floor === null && <button className={`ghost small touch-only ${quick ? "on" : ""}`} aria-pressed={quick} onClick={() => setQuick((v) => !v)}>{quick ? "Usual pace" : "Quicker"}</button>}
             <button className="ghost small" onClick={() => setWardrobe(true)}>Wardrobe</button>
+            {phase !== "focus" && <button className="ghost small" onClick={() => setKitOpen(true)} title="Place the items you’ve unlocked">Desk</button>}
             {canFs && <button className="ghost small" onClick={toggleFs} title="Full screen (F). Esc to leave.">{fs ? "Exit full screen" : "Full screen"}</button>}
           </div>
           {/* One short line of help: while walking (fades), or the usual standing hint */}
@@ -706,6 +746,8 @@ export default function HallView({ hallId }: { hallId: string }) {
       {notesOpen && <NotesDialog onClose={() => setNotesOpen(false)} />}
       {statsOpen && <StatsDialog liveMinutes={Math.round((focusedMs + (phase === "focus" ? Math.max(0, Math.min(now, phaseEndsAt ?? now) - phaseStart) * speed : 0)) / 60000)} onClose={() => setStatsOpen(false)} />}
       {planOpen && <TimetableDialog onClose={() => setPlanOpen(false)} />}
+      {kitOpen && <DeskKitDialog key={kit ? "ready" : "loading"} kit={kit} fresh={fresh} onSave={saveKit} onClose={() => setKitOpen(false)} />}
+      {unlocked && !seat && !kitOpen && <UnlockNote items={unlocked} onPlace={() => { void placeNew(); }} onLater={() => setUnlocked(null)} />}
       {sitAt && <SitDialog seat={sitAt} defaultFocus={plan.f} defaultBreak={plan.b} onCancel={() => setSitAt(null)} onSit={sit} />}
       {cardFor && (
         <DeskCard

@@ -6,6 +6,7 @@
 import type { Member } from "@/lib/presence/types"; // who sits here
 import { formatStudyHours } from "@/lib/studyStats"; // this-week hours on the desk
 import { isRealStudent, satAgoLabel } from "@/lib/livePresence"; // real people vs scripted companions
+import { spotsSummary } from "@/lib/deskKit"; // names of placed desk items
 
 // Props for a single desk.
 interface Props {
@@ -49,6 +50,7 @@ export default function Desk({ seat, occupant, isMine, isUsual, nowMs, onClick }
       <span className="topic" title={occupant.topic}>{occupant.topic || "…"}</span>
       {ago && <span className="sat-ago">{ago}</span>}
       {typeof occupant.weekMinutes === "number" && occupant.weekMinutes > 0 && <span className="small muted">{formatStudyHours(occupant.weekMinutes)} this week</span>}
+      {spotsSummary(occupant.deskKit) && <span className="small muted" title="On this desk">{spotsSummary(occupant.deskKit)}</span>}
     </button>
   );
 }

@@ -8,6 +8,7 @@ import { REPORT_REASONS, type ReportReason } from "@/lib/account"; // report rea
 import { isRealStudent } from "@/lib/livePresence"; // real people vs scripted companions
 import { TOP_LABELS, type Look } from "./three/looks"; // wardrobe choices (no three.js import)
 import { formatStudyHours } from "@/lib/studyStats"; // this-week hours on the card
+import { spotsSummary } from "@/lib/deskKit"; // names of placed desk items
 
 // ---- Sit-down dialog: step 2 of the ritual (sit -> topic -> timer -> recap) ----
 export function SitDialog(props: {
@@ -69,6 +70,7 @@ export function DeskCard(props: {
             <h2 style={{ margin: 0 }}>{m.name} {isRealStudent(m) ? <span className="live-tag">live</span> : <span className="ambient-tag">companion</span>}</h2>
             <div className="muted small">Studying: {m.topic}</div>
             {typeof m.weekMinutes === "number" && m.weekMinutes > 0 && <div className="muted small">{formatStudyHours(m.weekMinutes)} this week</div>}
+            {spotsSummary(m.deskKit) && <div className="muted small">On their desk: {spotsSummary(m.deskKit)}</div>}
           </div>
         </div>
         {/* Ambient students are scripted company, not real people: no requests, blocks or reports */}

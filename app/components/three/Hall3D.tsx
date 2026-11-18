@@ -10,6 +10,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber"; // React render
 import * as THREE from "three"; // math
 import Room from "./Room"; // walls, shelves, windows
 import Desks from "./Desks"; // desks, chairs, lamps
+import DeskKit from "./DeskKit"; // placed desk-kit props (plant, mug, ...)
 import Avatar from "./VrmAvatar"; // seated anime students (VRM), low-poly fallback inside
 import { PLACES, PLACE_BY_SEAT } from "./layout"; // seat positions
 import type { Member } from "@/lib/presence/types"; // who sits where
@@ -212,6 +213,7 @@ function Scene({ seatMap, myId, mySeat, reduced, rain, onPick, hot, setHovered, 
 
       <Room rain={rain} reduced={reduced} closed={firstPerson || walking} />
       <Desks occupied={occupied} mine={mySeat} hovered={hot} firstPerson={firstPerson} onHover={setHovered} onPick={onPick} />
+      <DeskKit seatMap={seatMap} />
 
       {/* Seated students (hide myself in first-person so the camera isn't inside my head) */}
       {[...seatMap.entries()].map(([seat, m]) => {

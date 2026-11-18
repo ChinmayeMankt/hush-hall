@@ -3,6 +3,7 @@
 //  - Supabase (the real app): data lives in Postgres behind row-level security;
 //  - demo mode (no env vars): the old local-only behaviour in localStorage.
 
+import { finishSitting, type FinishResult } from "./deskKit"; // study days + desk items after a recap
 import { hasSupabase, supabase, reasonOf } from "./backend/client"; // real backend (if configured)
 import * as local from "./profile"; // demo-mode storage helpers
 import type { Profile, Sitting } from "./profile"; // shared shapes
@@ -107,6 +108,13 @@ export async function standUp(sittingId: string, minutes: number, recap: string,
   if (!hasSupabase) { local.addSitting({ ...info, at: Date.now(), minutes, note: recap }); return minutes; } // demo
   const { data } = await supabase().rpc("stand_up", { p_id: sittingId, p_focused_minutes: Math.round(minutes), p_recap: recap }); // save
   return typeof data === "number" ? data : minutes; // saved minutes
+}
+
+// Stand up through the recap step: saves the sitting and, if it was 25+ minutes,
+// records today's study day for the desk kit. Returns minutes + any new desk items.
+export async function standUpWithRecap(sittingId: string, minutes: number, recap: string, info: Omit<Sitting, "at" | "minutes" | "note">): Promise<FinishResult> {
+  if (!hasSupabase) local.addSitting({ ...info, at: Date.now(), minutes, note: recap }); // demo: history in this browser
+  return finishSitting(sittingId, minutes, recap); // real: finish_sitting (falls back to stand_up); demo: local study days
 }
 
 // Best-effort "I left" when the tab closes (keepalive request survives page unload).

@@ -2,6 +2,8 @@
 // The UI only talks to this interface, so the local BroadcastChannel mock
 // can be swapped for Supabase Realtime (or anything else) without UI changes.
 
+import type { DeskSpots } from "../deskKit"; // placed desk items (type only)
+
 // What a desk is doing right now; drives the soft colour of a desk.
 export type Phase = "idle" | "focus" | "break"; // idle = seated but timer not running
 
@@ -24,6 +26,7 @@ export interface Member {
   walking?: boolean; // true while this person walks around the hall on foot (no desk); live position comes from the walker store
   lastSeen: number; // epoch ms of last heartbeat, used to drop stale tabs
   weekMinutes?: number; // this IST week's focused minutes, when they chose to show them; omitted if hidden or zero
+  deskKit?: DeskSpots; // desk items this person placed (spot -> item); shown on whatever desk they sit at
 }
 
 // Where a person on foot is right now: floor position, facing and pose.

@@ -16,9 +16,10 @@ import type { RealtimeChannel } from "@supabase/supabase-js"; // channel type
 import { supabase, reasonOf } from "../backend/client"; // shared client
 import type { JoinRequest, JoinResponse, Member, Phase, PresenceProvider, SendResult, Unsubscribe, WalkState } from "./types"; // contract
 import { setWalker, cleanWalk } from "./walkers"; // live positions of people on foot
+import { cleanSpots, DESK_SPOTS, type DeskSpots } from "../deskKit"; // desk items (checked shape)
 
 // What each tab announces on the presence channel (small and non-authoritative).
-type Beacon = { phase: Phase; phaseEndsAt: number | null; seated?: boolean; walk?: WalkState | null }; // timer state, whether I hold a desk (so sitting/standing re-reads desks), plus where I stand while walking (position, facing, pose)
+type Beacon = { phase: Phase; phaseEndsAt: number | null; seated?: boolean; walk?: WalkState | null; kit?: string }; // timer state, whether I hold a desk (so sitting/standing re-reads desks), where I stand while walking (position, facing, pose), and a short tag of my desk items (a change re-reads desks; the items themselves come from the database)
 // Public profile fields from public_profiles().
 type Pub = { id: string; nickname: string; avatar: string; color: string; takes_requests: boolean; show_topic: boolean; look?: string }; // safe fields (look: wardrobe, once migration 0003 is in)
 // A walker row from hall_walkers() (age_ms / stamp by the database clock).
@@ -100,7 +101,7 @@ export class SupabasePresence implements PresenceProvider {
   // Push my timer state (desk + topic are already in the database).
   update(me: Member) {
     if (me.seat && this.stored) this.save(null); // sat down: off my feet everywhere (the database also does this on sit)
-    const changed = !this.me || this.me.phase !== me.phase || this.me.phaseEndsAt !== me.phaseEndsAt || this.me.seat !== me.seat || !!this.me.walking !== !!me.walking; // anything others see? (walking on/off included)
+    const changed = !this.me || this.me.phase !== me.phase || this.me.phaseEndsAt !== me.phaseEndsAt || this.me.seat !== me.seat || !!this.me.walking !== !!me.walking || kitTag(this.me.deskKit) !== kitTag(me.deskKit); // anything others see? (walking on/off and desk items included)
     this.me = me; // keep latest
     if (changed) { this.track(); this.schedule(); } // re-announce and re-read desks (my own seat change)
   }
@@ -174,7 +175,7 @@ export class SupabasePresence implements PresenceProvider {
   private track() {
     if (!this.chan || !this.me) return; // not ready
     const w = this.me.seat || !this.myWalk ? null : { x: this.myWalk.x, z: this.myWalk.z, ry: this.myWalk.ry, pose: this.myWalk.pose }; // position + pose only: topics always come from the database (filtered), never from presence
-    const b: Beacon = { phase: this.me.phase, phaseEndsAt: this.me.phaseEndsAt, seated: !!this.me.seat, walk: w }; // small payload (never a walking position while seated)
+    const b: Beacon = { phase: this.me.phase, phaseEndsAt: this.me.phaseEndsAt, seated: !!this.me.seat, walk: w, kit: kitTag(this.me.deskKit) }; // small payload (never a walking position while seated)
     this.chan.track(b).catch(() => {}); // best effort (reconnects re-track)
   }
 
@@ -190,7 +191,7 @@ export class SupabasePresence implements PresenceProvider {
       const w = this.blocked.has(id) ? null : cleanWalk(b?.walk); // checked position, none for blocked people
       if (w) this.presWalk.set(id, w); else this.presWalk.delete(id); // live-channel position (or none)
       this.publish(id); // update (or clear) their figure on foot
-      parts.push(`${id}:${b?.phase}:${b?.phaseEndsAt}:${b?.seated ? 1 : 0}:${w ? (w.pose === "floor" ? 2 : 1) : 0}`); // what the desks and labels depend on (sit/stand, timer, walk on/off)
+      parts.push(`${id}:${b?.phase}:${b?.phaseEndsAt}:${b?.seated ? 1 : 0}:${w ? (w.pose === "floor" ? 2 : 1) : 0}:${typeof b?.kit === "string" ? b.kit.slice(0, 80) : ""}`); // what the desks and labels depend on (sit/stand, timer, walk on/off, desk items)
     }
     const sig = parts.join("|"); // compact signature
     if (sig !== this.lastSig) { this.lastSig = sig; this.schedule(); } // arrivals, departures, timers, walk on/off: re-read desks
@@ -227,6 +228,13 @@ export class SupabasePresence implements PresenceProvider {
       const { data: hours, error: hoursErr } = await sb.rpc("public_weekly_hours", { ids }); // safe weekly totals
       if (!hoursErr) ((hours ?? []) as { user_id: string; minutes: number }[]).forEach((r) => { if (r.minutes > 0) weekMin.set(r.user_id, r.minutes); }); // skip zeros
     }
+    // Desk items of people seated here (arrangement only). Fail quietly if 0006 is not applied yet.
+    const kits = new Map<string, DeskSpots>(); // id -> placed items
+    const seatedIds = ids.filter((id) => deskBy.has(id)); // only people at a desk
+    if (seatedIds.length) {
+      const { data: kitRows, error: kitErr } = await sb.rpc("public_desk_kits", { ids: seatedIds }); // safe arrangements
+      if (!kitErr) ((kitRows ?? []) as { user_id: string; spots: unknown }[]).forEach((r) => kits.set(r.user_id, cleanSpots(r.spots))); // checked shape
+    }
     this.members = ids.flatMap((id) => {
       const pub = this.profiles.get(id)?.p; // public profile
       if (!pub) return []; // banned / unknown: not shown
@@ -243,6 +251,7 @@ export class SupabasePresence implements PresenceProvider {
         hideFromRequests: !pub.takes_requests, lastSeen: now, // privacy + freshness
         walking: !desk && (this.presWalk.has(id) || this.dbWalk.has(id)), // on foot only when they hold no desk (live channel or database)
         weekMinutes: weekMin.get(id), // undefined when hidden, zero, or the function is not there yet
+        deskKit: desk ? kits.get(id) : undefined, // their desk items, only while seated
       } satisfies Member];
     });
     this.emit(); // tell the hall
@@ -357,3 +366,9 @@ function missingFn(e: { code?: string; message?: string }) {
 
 // join_requests row as delivered by PostgREST / Postgres Changes.
 type ReqRow = { id: string; from_id: string; to_id: string; hall_id: string; note: string; status: string; room_id: string | null; created_at: string }; // columns
+
+// A short tag for a desk arrangement, e.g. "plant,,mug,," (empty string = nothing placed).
+function kitTag(k: DeskSpots | undefined): string {
+  const t = DESK_SPOTS.map((s) => k?.[s.id] ?? "").join(","); // five slots in order
+  return t.replace(/,/g, "") ? t : ""; // all empty -> ""
+}

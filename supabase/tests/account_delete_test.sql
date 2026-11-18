@@ -1,5 +1,5 @@
 -- Account deletion check (Google Play: deleting an account must really delete
--- its data). Run on a scratch database after local_stub.sql + migrations 0001–0004:
+-- its data). Run on a scratch database after local_stub.sql + migrations 0001–0006:
 --   psql -v ON_ERROR_STOP=1 -f account_delete_test.sql
 -- The app's /api/account/delete removes the auth.users row (server side, with
 -- the service key); every table below must then hold nothing about that person.
@@ -24,6 +24,9 @@ insert into account_notices (user_id, body) values ('00000000-0000-0000-0000-000
 insert into desk_notes (user_id, title, source, url, note, share_token) values ('00000000-0000-0000-0000-0000000000d1', 'PCR steps', 'chatgpt', 'https://example.com/pcr', 'annealing temps', 'abcdefghijklmnopqrstuvwxyz12'); -- a private desk note with a share link
 insert into timetable_slots (user_id, day, start_min, end_min, subject) values ('00000000-0000-0000-0000-0000000000d1', 0, 540, 660, 'Organic chemistry'); -- a timetable slot
 insert into moderators (user_id) values ('00000000-0000-0000-0000-0000000000d1'); -- even a moderator can leave
+insert into study_days (user_id, day, counted_minutes, sessions) values ('00000000-0000-0000-0000-0000000000d1', current_date, 30, 1); -- a study day
+insert into desk_unlocks (user_id, item) values ('00000000-0000-0000-0000-0000000000d1', 'plant'); -- an unlocked desk item
+insert into desk_layouts (user_id, spots) values ('00000000-0000-0000-0000-0000000000d1', '{"1": "plant"}'); -- where it sits
 
 -- What the server does: delete the login.
 delete from auth.users where id = '00000000-0000-0000-0000-0000000000d1'; -- cascades
@@ -35,7 +38,8 @@ do $$ declare d uuid := '00000000-0000-0000-0000-0000000000d1'; n int; begin
        + (select count(*) from room_members where user_id = d) + (select count(*) from join_requests where from_id = d or to_id = d)
        + (select count(*) from reports where reporter_id = d or reported_id = d or reviewed_by = d) + (select count(*) from account_notices where user_id = d)
        + (select count(*) from moderators where user_id = d) + (select count(*) from rooms where owner_id = d)
-       + (select count(*) from desk_notes where user_id = d) + (select count(*) from timetable_slots where user_id = d) into n; -- every place a person can appear
+       + (select count(*) from desk_notes where user_id = d) + (select count(*) from timetable_slots where user_id = d)
+       + (select count(*) from study_days where user_id = d) + (select count(*) from desk_unlocks where user_id = d) + (select count(*) from desk_layouts where user_id = d) into n; -- every place a person can appear
   if n <> 0 then raise exception 'FAIL % rows about the deleted account remain', n; end if;
 end $$;
 do $$ begin if exists (select 1 from reports where reported_nickname = 'Dev') then raise exception 'FAIL report snapshot kept the deleted nickname'; end if; end $$;
