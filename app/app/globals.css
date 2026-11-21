@@ -271,32 +271,6 @@ button.note-open { display: block; width: 100%; text-align: left; background: no
 .kit-work { display: grid; place-items: center; border: 1px dashed var(--line); border-radius: 8px; min-height: 52px; } /* where your own book lies */
 .kit-side { align-self: end; } /* lamp / book side captions */
 
-/* ---- Front page: the live hall with one gentle card over it ---- */
-.landing-hall .hall3d { height: calc(100vh - 96px); height: calc(100dvh - 96px); min-height: 520px; } /* the hall fills the window under the header */
-.landing-card { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); z-index: 24; width: min(360px, calc(100% - 32px)); max-height: calc(100% - 100px); overflow: auto; background: rgba(250, 244, 230, 0.94); border: 1px solid #c9b48a; border-radius: 14px; padding: 16px 18px; box-shadow: 0 10px 30px rgba(20, 10, 0, 0.35); backdrop-filter: blur(3px); animation: landing-in 0.9s ease-out both; } /* paper card floating over the scene */
-.landing-card label { margin-top: 10px; } /* a little air between fields */
-.landing-card .actions { margin-top: 12px; } /* button row */
-.landing-title { font-size: 1.6rem; margin: 0 0 4px; } /* "Take a desk." */
-.landing-avatars { margin-top: 10px; gap: 4px; } /* compact avatar row */
-.landing-avatars .avatar-pick { width: 34px; height: 34px; font-size: 1.05rem; } /* smaller picks on the card */
-.landing-adult { margin-top: 12px; align-items: flex-start; line-height: 1.35; } /* the one 18+ box */
-.landing-adult input { margin-top: 3px; } /* line the box up with the first line of text */
-.landing-foot { margin: 10px 0 0; } /* "No email needed" line */
-.landing-count { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 6; background: rgba(247, 237, 214, 0.88); color: #3b2f25; border: 1px solid #c9b48a; border-radius: 14px; padding: 3px 12px; white-space: nowrap; pointer-events: none; } /* who is here, honest and small */
-.landing-lobby { max-width: 980px; margin: 24px auto 0; } /* the signed-in lobby below the hall keeps its centred column */
-@keyframes landing-in { from { opacity: 0; transform: translateY(calc(-50% + 8px)); } to { opacity: 1; transform: translateY(-50%); } } /* the card settles in softly */
-@media (prefers-reduced-motion: reduce) { .landing-card { animation: none; } } /* no movement when asked */
-/* Small screens: the card sits along the bottom, the hall stays visible above it */
-@media (max-width: 640px) {
-  .landing-hall .hall3d { height: calc(100dvh - 80px); min-height: 560px; } /* tall enough for hall + card */
-  .landing-card { top: auto; bottom: 10px; left: 10px; transform: none; width: calc(100% - 20px); max-height: 62%; padding: 12px 14px; animation: none; } /* bottom sheet */
-  .landing-hall .zoom3d { display: none; } /* the card covers the zoom corner on phones; pinch is not needed for a first look */
-  .landing-count { top: 50px; left: 10px; transform: none; font-size: 11px; white-space: normal; max-width: calc(100% - 20px); } /* under the Sharper toggle, wraps if it must */
-  .landing-avatars .avatar-pick { width: 30px; height: 30px; font-size: 0.95rem; } /* tighter picks */
-  .landing-card label { margin-top: 6px; } /* tighter fields */
-  .landing-title { font-size: 1.3rem; } /* a little smaller */
-}
-
 /* Warm stand-in while the 3D hall loads (never a blank box) */
 .hall-placeholder { display: grid; place-items: center; align-content: center; gap: 18px; background: radial-gradient(ellipse at 50% 35%, #5a3a22 0%, #3a2416 45%, #24160d 100%); color: #e8d6b4; font-family: Georgia, serif; } /* dark wood and lamplight */
 .ph-lamps { display: flex; gap: clamp(18px, 6vw, 64px); } /* a row of desk lamps */
@@ -305,6 +279,9 @@ button.note-open { display: block; width: 100%; text-align: left; background: no
 .ph-text { font-size: 0.95rem; opacity: 0.85; text-align: center; padding: 0 20px; } /* one quiet line */
 @keyframes ph-glow { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } } /* slow breathing light */
 @media (prefers-reduced-motion: reduce) { .ph-lamps span { animation: none; } } /* still lamps when asked */
-.ph-cover { position: absolute; inset: 0; z-index: 4; pointer-events: none; transition: opacity 1.2s ease; } /* stand-in laid over the scene while it draws its first frames */
-.ph-cover.gone { opacity: 0; } /* then it fades away */
-.landing-card .row input { flex: 1; min-width: 0; } /* nickname box shares its row with the ↻ button */
+/* The visitor's nickname + 18+ prompt (only when they try to take a desk, walk, or dress up) */
+.guest-prompt .row input { flex: 1; min-width: 0; } /* nickname box shares its row with the ↻ button */
+.guest-avatars { margin-top: 10px; gap: 4px; } /* compact avatar row */
+.guest-avatars .avatar-pick { width: 34px; height: 34px; font-size: 1.05rem; } /* smaller picks in the prompt */
+.guest-adult { margin-top: 12px; align-items: flex-start; line-height: 1.35; } /* the one 18+ box */
+.guest-adult input { margin-top: 3px; } /* line the box up with the first line of text */

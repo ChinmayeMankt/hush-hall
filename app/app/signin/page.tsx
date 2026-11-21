@@ -54,7 +54,7 @@ export default function SignIn() {
     }
   };
 
-  if (!hasSupabase) return <div className="card"><h1>Sign in</h1><p className="muted">This copy of Hush Hall runs in demo mode (no server configured), so there are no accounts. <a href="/">Back to the lobby</a></p></div>; // demo
+  if (!hasSupabase) return <div className="card"><h1>Sign in</h1><p className="muted">This copy of Hush Hall runs in demo mode (no server configured), so there are no accounts. <a href="/">Back to the hall</a></p></div>; // demo
 
   return (
     <div className="card narrow">

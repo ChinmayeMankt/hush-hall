@@ -35,9 +35,24 @@ import { startPageTurns, type PageTurnCandidate, type Listener } from "@/lib/pag
 import { hasWebGL, prefersReducedMotion } from "@/lib/env"; // capability checks
 import dynamic from "next/dynamic"; // lazy-load the 3D bundle
 import { prefetchModels } from "./three/models"; // tiny module: start character downloads before the 3D bundle arrives
+import { GuestPrompt } from "./GuestPrompt"; // nickname + 18+ step for visitors (no email)
+import { hallPreview } from "@/lib/guest"; // who is seated, for visitors who haven't entered yet
+import { AVATARS } from "@/lib/profile"; // default avatar for the visitor stand-in
+
+// A calm, warm stand-in while the 3D code and characters load (never a blank box).
+function LampsPlaceholder({ text }: { text: string }) {
+  return (
+    <div className="hall3d hall-placeholder" aria-label="The reading hall is loading">
+      {/* Five soft lamp glows in a row, like desks seen from the door */}
+      <div className="ph-lamps" aria-hidden="true"><span /><span /><span /><span /><span /></div>
+      {/* One quiet line of text */}
+      <div className="ph-text">{text}</div>
+    </div>
+  );
+}
 
 // The 3D hall is loaded only in the browser and only when used (keeps the 2D view light).
-const Hall3D = dynamic(() => import("./three/Hall3D"), { ssr: false, loading: () => <div className="hall3d loading">Lighting the lamps…</div> }); // lazy 3D
+const Hall3D = dynamic(() => import("./three/Hall3D"), { ssr: false, loading: () => <LampsPlaceholder text="Lighting the lamps…" /> }); // lazy 3D
 
 // Format milliseconds as mm:ss for the clock.
 function mmss(ms: number) {
@@ -45,7 +60,9 @@ function mmss(ms: number) {
   return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; // e.g. 24:59
 }
 
-export default function HallView({ hallId }: { hallId: string }) {
+// home = this hall is the front page: visitors who haven't entered can look around,
+// and the nickname + 18+ step appears only when they do something that needs a name.
+export default function HallView({ hallId, home = false }: { hallId: string; home?: boolean }) {
   const hall = hallById(hallId)!; // validated by the route
   const presence = useMemo(() => getPresence(), []); // shared provider for this tab
   const demos = useMemo(() => (hasSupabase ? [] : demoMembers(hallId)), [hallId]); // simulated students only in offline demo mode (real halls show real people only)
@@ -115,6 +132,8 @@ export default function HallView({ hallId }: { hallId: string }) {
   const [fresh, setFresh] = useState<DeskItemId[]>([]); // the same items, marked "new" in the desk dialog
 
   const [wantDesk, setWantDesk] = useState<string | null>(null); // desk asked for on the front page (?desk=), opened once
+  const [visitor, setVisitor] = useState(false); // looking around without a name yet (front page only)
+  const [askGuest, setAskGuest] = useState<{ desk: string | null } | null>(null); // nickname + 18+ prompt open (and the desk they tapped)
 
   const phaseRef = useRef(phase); // latest phase for presence callbacks
   phaseRef.current = phase; // keep it current every render
@@ -130,8 +149,14 @@ export default function HallView({ hallId }: { hallId: string }) {
     let live = true; // ignore results after unmount
     loadAccount().then(async (a) => {
       if (!live) return; // navigated away
-      if (a.state === "signed_out") { window.location.href = `/?next=${encodeURIComponent(`/hall/${hallId}`)}`; return; } // front page first: a nickname (guest) or sign in
-      if (a.state === "needs_onboarding") { window.location.href = a.guest ? `/?next=${encodeURIComponent(`/hall/${hallId}`)}` : "/welcome"; return; } // finish the 18+ step first (guests on the front page, email accounts on /welcome)
+      const noName = a.state === "signed_out" || (a.state === "needs_onboarding" && a.guest); // no profile yet, and no email sign-up to finish
+      if (noName && home) { // front page: look around first; a name is asked for only when needed
+        setVisitor(true); // visitor mode: no presence join, no saving
+        setProfile({ id: "visitor", name: "", avatar: AVATARS[0], color: "#e9d8a6", hideFromRequests: true, focusMin: 25, breakMin: 5, chime: false, look: "" }); // stand-in, never shown or saved
+        return; // nothing else to load for a visitor
+      }
+      if (noName) { window.location.href = `/?next=${encodeURIComponent(`/hall/${hallId}`)}`; return; } // other halls: start on the front page (nickname there)
+      if (a.state === "needs_onboarding") { window.location.href = "/welcome"; return; } // email account: finish the 18+ sign-up first
       const p = a.profile; // my profile
       if (!p.name.trim()) p.name = "Guest"; // demo fallback name if they skipped the lobby
       setProfile(p); // store it
@@ -149,7 +174,8 @@ export default function HallView({ hallId }: { hallId: string }) {
     const saved = (q.get("view") ?? localStorage.getItem("hh.view")) as "3d" | "2d" | null; // URL or saved choice
     setView(ok && saved !== "2d" ? "3d" : "2d"); // 3D by default when available
     setForceHover(q.get("hover")); // optional forced hover
-    setWantDesk(q.get("desk")); // ?desk=B3 (or "any") from the front page: open the sit step once the hall has loaded
+    setWantDesk(q.get("desk")); // ?desk=B3 (or "any") after the nickname step: open the sit step once the hall has loaded
+    if (q.get("deleted") === "1") window.setTimeout(() => say("Your account and its data have been deleted."), 600); // after "Delete account", say it plainly once
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)"); // OS motion setting
     setReduced(prefersReducedMotion()); // initial value
     const onMq = () => setReduced(mq.matches); // live updates
@@ -221,7 +247,7 @@ export default function HallView({ hallId }: { hallId: string }) {
   // Join the hall once my profile is ready; leave on unmount or tab close.
   const joined = useRef(false); // guard against double join
   useEffect(() => {
-    if (!me || joined.current) return; // wait for profile
+    if (!me || joined.current || visitor) return; // wait for profile; visitors watch without joining
     joined.current = true; // mark joined
     presence.join(hallId, me); // enter the hall
     const offMembers = presence.onMembers(setOthers); // live desks
@@ -245,7 +271,27 @@ export default function HallView({ hallId }: { hallId: string }) {
       joined.current = false; // allow re-join (React strict mode remount)
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me === null, hallId]);
+  }, [me === null, hallId, visitor]);
+
+  // Visitors: who is seated, read every 20 s (desk, avatar and look only; names and topics stay inside).
+  useEffect(() => {
+    if (!visitor) return; // signed-in people use live presence
+    let live = true; // ignore results after unmount
+    const load = () => hallPreview(hallId).then((m) => { if (live) setOthers(m); }); // read
+    load(); // first read
+    const t = window.setInterval(load, 20000); // setting: every 20 s
+    return () => { live = false; clearInterval(t); }; // cleanup
+  }, [visitor, hallId]);
+
+  // Visitors: anything that needs a name opens the nickname + 18+ prompt instead. True = prompt shown.
+  const needName = (desk: string | null = null) => { if (!visitor) return false; setAskGuest({ desk }); return true; }; // signed-in people carry on
+
+  // After the nickname step: reload this page signed in, opening the desk they tapped (or the hall they came for).
+  const entered = () => {
+    const next = new URLSearchParams(window.location.search).get("next") ?? ""; // e.g. /hall/science-wing
+    const base = /^\/hall\/[a-z-]+$/.test(next) ? next : window.location.pathname; // only hall pages, never another site
+    window.location.href = askGuest?.desk ? `${base}?desk=${encodeURIComponent(askGuest.desk)}` : base; // reload signed in
+  };
 
   // Push my state whenever it changes.
   useEffect(() => {
@@ -448,7 +494,7 @@ export default function HallView({ hallId }: { hallId: string }) {
   const seatMapRef = useRef(seatMap); // latest seat map, read when the timer fires (so live updates don't keep restarting it)
   seatMapRef.current = seatMap; // keep it current every render
   useEffect(() => {
-    if (!wantDesk || !profile || seat) return; // nothing asked, not ready, or already seated
+    if (!wantDesk || !profile || seat || visitor) return; // nothing asked, not ready, already seated, or still a visitor
     const t = window.setTimeout(() => {
       const free = (s: string) => { const o = seatMapRef.current.get(s); return !o || !!o.isAmbient; }; // empty, or a companion who gives way
       const pick = wantDesk !== "any" && ALL_SEATS.includes(wantDesk) && free(wantDesk) ? wantDesk : usual && free(usual) ? usual : ALL_SEATS.find(free) ?? null; // asked-for desk, else usual, else first free (front to back)
@@ -463,6 +509,7 @@ export default function HallView({ hallId }: { hallId: string }) {
   // Tap on a desk: sit if vacant and I am standing; open desk card if occupied.
   const onDesk = (s: string) => {
     const who = seatMap.get(s); // occupant
+    if (needName(!who || who.isAmbient ? s : null)) return; // visitors: a free desk (or a companion's) is theirs after the nickname step
     if (!who) {
       if (seat) { say("You already have a desk. Stand up first to move."); return; } // one desk at a time
       setSitAt(s); // open sit dialog
@@ -593,7 +640,7 @@ export default function HallView({ hallId }: { hallId: string }) {
   };
 
   if (loadFailed) return <p className="muted">Couldn’t walk in just now. <button className="ghost small" onClick={() => window.location.reload()}>Try again</button></p>; // load failed
-  if (!profile || !me) return <p className="muted">Walking in…</p>; // first paint
+  if (!profile || !me) return home ? <div className="hall-root"><div className="hall3d-wrap"><LampsPlaceholder text="Opening the doors…" /></div></div> : <p className="muted">Walking in…</p>; // first paint (the front page shows the warm stand-in, never a blank page)
 
   // Derived values for the focus bar.
   const left = phaseEndsAt ? phaseEndsAt - now : 0; // real ms left in phase
@@ -615,10 +662,10 @@ export default function HallView({ hallId }: { hallId: string }) {
           <div className="rule">{hall.rule} · {liveCount} of {ROWS.length * DESKS_PER_ROW} desks taken{ambientCount > 0 && <span className="muted small"> · {ambientCount} quiet companion{ambientCount === 1 ? "" : "s"}, not real people</span>}</div>
         </div>
         <div className="row">
-          <span className="toggle">
+          {!visitor && <span className="toggle">
             <input type="checkbox" checked={profile.hideFromRequests} onChange={(e) => patchProfile({ hideFromRequests: e.target.checked })} />
             Hide me from requests
-          </span>
+          </span>}
           <span className="toggle">
             Timer sound
             <select aria-label="Timer sound" value={alertSound} style={{ width: "auto" }} onChange={(e) => { const v = e.target.value as AlertSound; setAlertSound(v); saveAlertSound(v); playAlert(v); }}>
@@ -638,12 +685,12 @@ export default function HallView({ hallId }: { hallId: string }) {
           {webgl && (
             <button className="ghost small" onClick={() => chooseView(view === "3d" ? "2d" : "3d")}>{view === "3d" ? "Simple view" : "3D hall"}</button>
           )}
-          {!(view === "3d" && webgl) && phase !== "focus" && <button className="ghost small" onClick={() => setKitOpen(true)} title="Place the items you’ve unlocked">Desk</button>}
+          {!(view === "3d" && webgl) && phase !== "focus" && <button className="ghost small" onClick={() => needName() || setKitOpen(true)} title="Place the items you’ve unlocked">Desk</button>}
           {/* Hall hopping: only while standing, so a sitting always ends with a recap */}
           <select aria-label="Move to another hall" value={hallId} disabled={!!seat} title={seat ? "Stand up to hop halls" : "Move to another hall"} onChange={(e) => { window.location.href = `/hall/${e.target.value}`; }} style={{ width: "auto" }}>
             {HALLS.map((h) => <option key={h.id} value={h.id} disabled={!!h.comingSoon}>{h.name}{h.comingSoon ? " (coming soon)" : ""}</option>)}
           </select>
-          <a href="/" className="small">Lobby</a>
+          {visitor ? <a href="/signin" className="small">Sign in</a> : <a href="/lobby" className="small">Lobby</a>}
         </div>
       </div>
 
@@ -665,13 +712,13 @@ export default function HallView({ hallId }: { hallId: string }) {
           <div className="frame-ctl">
             {!seat && (walking
               ? <button className="ghost small" onClick={() => setWalk(null)}>Stop walking</button>
-              : <button className="ghost small" onClick={() => setWalk({ ...ENTRANCE, n: Date.now() })}>Walk around</button>)}
+              : <button className="ghost small" onClick={() => needName() || setWalk({ ...ENTRANCE, n: Date.now() })}>Walk around</button>)}
             {walking && (floor !== null
               ? <button className="ghost small" onClick={getUp} title="Get up (G)">Get up</button>
               : <button className="ghost small" onClick={() => setFloorAsk(true)} title="Sit on the floor here to study (G)">Sit on the floor</button>)}
             {walking && floor === null && <button className={`ghost small touch-only ${quick ? "on" : ""}`} aria-pressed={quick} onClick={() => setQuick((v) => !v)}>{quick ? "Usual pace" : "Quicker"}</button>}
-            <button className="ghost small" onClick={() => setWardrobe(true)}>Wardrobe</button>
-            {phase !== "focus" && <button className="ghost small" onClick={() => setKitOpen(true)} title="Place the items you’ve unlocked">Desk</button>}
+            <button className="ghost small" onClick={() => needName() || setWardrobe(true)}>Wardrobe</button>
+            {phase !== "focus" && <button className="ghost small" onClick={() => needName() || setKitOpen(true)} title="Place the items you’ve unlocked">Desk</button>}
             {canFs && <button className="ghost small" onClick={toggleFs} title="Full screen (F). Esc to leave.">{fs ? "Exit full screen" : "Full screen"}</button>}
           </div>
           {/* One short line of help: while walking (fades), or the usual standing hint */}
@@ -779,6 +826,7 @@ export default function HallView({ hallId }: { hallId: string }) {
       {recapOpen && <RecapDialog topic={topic} minutes={Math.round((focusedMs + (phase === "focus" ? Math.max(0, Math.min(now, phaseEndsAt ?? now) - phaseStart) * speed : 0)) / 60000)} onSave={standUp} onBack={() => { setRecapOpen(false); setRecapThen(null); }} />}
       {seat && phase === "break" && !breakHidden && <BreakCard clock={mmss(left)} compact={view === "3d" && webgl} onSkip={() => startPhase("focus", plan.f)} onHide={() => setBreakHidden(true)} />}
       {reportFor && <ReportDialog member={reportFor} onCancel={() => setReportFor(null)} onSend={(reason, note) => report(reportFor, reason, note)} />}
+      {askGuest && <GuestPrompt desk={askGuest.desk} onCancel={() => setAskGuest(null)} onEntered={entered} />}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );

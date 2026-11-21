@@ -19,7 +19,7 @@ export default async function HallPage({ params }: { params: Promise<{ id: strin
     <div className="card narrow">
       <h1>{hall.name}</h1>
       <p className="muted">🔒 Coming soon. We’re gathering everyone in the Main Reading Hall first, so every desk you look at has company.</p>
-      <div className="actions"><a className="btn sage" href={`/hall/${MAIN_HALL}`}>Go to the Main Reading Hall</a><a className="btn ghost" href="/">Back to the lobby</a></div>
+      <div className="actions"><a className="btn sage" href={`/hall/${MAIN_HALL}`}>Go to the Main Reading Hall</a><a className="btn ghost" href="/lobby">Back to the lobby</a></div>
     </div>
   );
   return <HallView hallId={id} />; // render the hall
