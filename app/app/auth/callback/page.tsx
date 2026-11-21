@@ -23,6 +23,11 @@ export default function AuthCallback() {
       const sb = supabase(); // client (may already have exchanged the code on load)
       let { data } = await sb.auth.getSession(); // session yet?
       if (!data.session && code) { await sb.auth.exchangeCodeForSession(code).catch(() => null); data = (await sb.auth.getSession()).data; } // exchange if needed
+      else if (data.session?.user.is_anonymous) { // a guest confirming the email they saved: same account, so refresh it
+        if (code) await sb.auth.exchangeCodeForSession(code).catch(() => null); // finish the email confirmation if the link carries a code
+        await sb.auth.refreshSession().catch(() => null); // new token: no longer a guest once the email is confirmed
+        data = (await sb.auth.getSession()).data; // latest session
+      }
       if (!data.session) { setFailed(true); return; } // link expired or opened in another browser
       const a = await loadAccount(true); // fresh state
       window.location.replace(a.state === "needs_onboarding" ? "/welcome" : next === "/" ? "/hall/main-reading" : next); // returning people go straight to the Main Reading Hall

@@ -15,13 +15,13 @@ export default function DeleteAccount() {
 
       <h2>In the app</h2>
       <ol>
-        <li><a href="/signin?next=/me">Sign in</a> with your email link.</li>
+        <li><a href="/signin?next=/me">Sign in</a> with your email link (guests: just open Hush Hall in the browser where you study).</li>
         <li>Open <a href="/me#delete-account">My study log &amp; account</a>.</li>
         <li>Under <b>Delete account</b>, type DELETE and confirm.</li>
       </ol>
 
       <h2>What is deleted</h2>
-      <p>Straight away and permanently: your login and email address, profile and settings, sittings and recaps, desk notes and any share links, timetable, study days and desk items, usual desks, walking position, blocks, study requests, study-room memberships, notices, and reports you filed or that were filed about you. Nothing is kept afterwards. Voice is never recorded, so there is no audio to delete.</p>
+      <p>Straight away and permanently: your login and email address (if any), profile and settings, sittings and recaps, desk notes and any share links, timetable, study days and desk items, usual desks, walking position, blocks, study requests, study-room memberships, notices, and reports you filed or that were filed about you. Nothing is kept afterwards. Voice is never recorded, so there is no audio to delete.</p>
 
       <h2>Can’t sign in?</h2>
       <p>Email <a href={`mailto:${PRIVACY_CONTACT}?subject=Delete%20my%20Hush%20Hall%20account`}>{PRIVACY_CONTACT}</a> from the address on your account, and we’ll delete it for you.</p>

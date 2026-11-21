@@ -24,7 +24,7 @@ export default function Rules() {
 
       <h2>Using Hush Hall</h2>
       <ul>
-        <li>Sign-up is open to anyone aged 18+. You confirm your age with your date of birth when you sign up.</li>
+        <li>Sign-up is open to anyone aged 18+. You confirm your age with your date of birth when you sign up with email, or by ticking the 18+ box when you take a desk as a guest.</li>
         <li>Anyone can send a short request to study together; the other person can accept or say “Not now”. You can hide yourself from requests at any time.</li>
         <li>You can block someone (you stop seeing each other’s desks and requests, and you are separated from any shared room; they are not told) and report someone to the moderators.</li>
         <li>Moderators review reports at least once a day, and aim to act on harassment and safety reports within 24 hours. Possible actions are a warning, removing a topic, pausing study rooms, or closing an account.</li>
@@ -34,7 +34,7 @@ export default function Rules() {
       <h2>Privacy notice</h2>
       <h3>What we keep</h3>
       <ul>
-        <li>Your email address, to sign you in with a one-time link.</li>
+        <li>Your email address, to sign you in with a one-time link, only if you use email. Guests give no email.</li>
         <li>Your nickname, avatar, lamp colour and settings (rhythm, chime, hide-from-requests).</li>
         <li>That you confirmed you are 18+, when, and which version of these rules you accepted. We do <b>not</b> store your date of birth.</li>
         <li>Your study sittings: hall, desk, topic, times, focused minutes, and the optional one-line recap. Only you can see your history.</li>

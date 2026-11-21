@@ -23,8 +23,8 @@ export type ReportReason = (typeof REPORT_REASONS)[number]["id"]; // union of id
 // Where the account is in sign-up.
 export type AccountState =
   | { state: "signed_out" } // needs to sign in
-  | { state: "needs_onboarding"; email: string } // signed in, no profile yet (18+ check pending)
-  | { state: "ready"; profile: Profile; email: string; isModerator: boolean }; // can use the halls
+  | { state: "needs_onboarding"; email: string; guest: boolean } // signed in, no profile yet (18+ check pending); guest = signed in without an email
+  | { state: "ready"; profile: Profile; email: string; isModerator: boolean; guest: boolean }; // can use the halls; guest = no email saved yet
 
 // Result of trying to take a desk.
 export type SitResult = { ok: true; sittingId: string } | { ok: false; reason: string }; // reason: desk_taken, topic_not_allowed, ...
@@ -39,17 +39,18 @@ const toProfile = (r: ProfileRow): Profile => ({ id: r.id, name: r.nickname, ava
 let cached: AccountState | null = null; // last loaded state
 export async function loadAccount(force = false): Promise<AccountState> {
   if (cached && !force) return cached; // reuse within the tab
-  if (!hasSupabase) { const p = local.loadProfile(); cached = { state: "ready", profile: p, email: "", isModerator: false }; return cached; } // demo: always "ready"
+  if (!hasSupabase) { const p = local.loadProfile(); cached = { state: "ready", profile: p, email: "", isModerator: false, guest: false }; return cached; } // demo: always "ready"
   const sb = supabase(); // client
   const { data: s } = await sb.auth.getSession(); // stored session
   const user = s.session?.user; // who
   if (!user) { cached = { state: "signed_out" }; return cached; } // not signed in
   const { data: row, error: profErr } = await sb.from("profiles").select("id,nickname,avatar,color,hide_from_requests,focus_min,break_min,chime,rooms_suspended").eq("id", user.id).maybeSingle(); // my profile (RLS: own row only)
   if (profErr) throw profErr; // a failed query is not "no profile": callers show a retry instead of sending people to sign up again
-  if (!row) { cached = { state: "needs_onboarding", email: user.email ?? "" }; return cached; } // finish sign-up first
+  const guest = !!user.is_anonymous; // a guest: signed in without an email (Supabase anonymous sign-in) until they confirm one
+  if (!row) { cached = { state: "needs_onboarding", email: user.email ?? "", guest }; return cached; } // finish sign-up first
   const { data: lk } = await sb.from("profiles").select("look").eq("id", user.id).maybeSingle(); // wardrobe, read on its own so a database without the column (migration 0003 not run yet) still loads the profile
   const { error: modErr } = await sb.rpc("mod_queue", { p_status: "none" }); // cheap moderator check (empty result for moderators, error for others)
-  cached = { state: "ready", profile: { ...toProfile(row as ProfileRow), look: (lk as { look?: string } | null)?.look ?? "" }, email: user.email ?? "", isModerator: !modErr }; // ready (look: empty if not available)
+  cached = { state: "ready", profile: { ...toProfile(row as ProfileRow), look: (lk as { look?: string } | null)?.look ?? "" }, email: user.email ?? "", isModerator: !modErr, guest }; // ready (look: empty if not available)
   return cached; // done
 }
 

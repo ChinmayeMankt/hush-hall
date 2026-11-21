@@ -1,7 +1,9 @@
 // Finish sign-up: 18+ check, house rules acceptance, nickname + avatar.
-// Runs on the server so the age rule can't be skipped. The date of birth is
-// used for this one check and is never stored. Under-18 sign-ups are refused
-// and their just-created login is deleted, so no account remains.
+// Runs on the server so the age rule can't be skipped. Email accounts give a
+// date of birth, used for this one check and never stored; under-18 sign-ups
+// are refused and their just-created login is deleted, so no account remains.
+// Guests (signed in without an email) tick one "I'm 18 or older and agree to
+// the house rules" box instead, so they can take a desk with just a nickname.
 
 import { admin, json, serverConfigured, userFrom } from "@/lib/backend/server"; // server helpers
 import { ageOn, MIN_AGE, TERMS_VERSION } from "@/lib/legal"; // age + terms version
@@ -18,13 +20,19 @@ export async function POST(req: Request) {
   if (!serverConfigured) return json({ ok: false, reason: "server_not_configured" }, 503); // env vars missing
   const who = await userFrom(req); // verified caller
   if (!who) return json({ ok: false, reason: "not_signed_in" }, 401); // must sign in first
-  const body = (await req.json().catch(() => ({}))) as { birthDate?: string; nickname?: string; avatar?: string; color?: string; acceptTerms?: boolean }; // form
+  const body = (await req.json().catch(() => ({}))) as { birthDate?: string; nickname?: string; avatar?: string; color?: string; acceptTerms?: boolean; adult?: boolean }; // form
   const db = admin(); // service client
   const { data: existing } = await db.from("profiles").select("id").eq("id", who.user.id).maybeSingle(); // already onboarded?
   if (existing) return json({ ok: true }); // nothing to do
-  const age = ageOn(body.birthDate ?? "", todayIndia()); // whole years
-  if (age === null) return json({ ok: false, reason: "bad_date" }, 400); // not a real date
-  if (age < MIN_AGE) { await db.auth.admin.deleteUser(who.user.id); return json({ ok: false, reason: "under18" }, 403); } // refuse and remove the login
+  // Guests confirm 18+ with one box; email accounts keep the date-of-birth check.
+  const guest = who.user.is_anonymous === true; // signed in without an email (Supabase anonymous sign-in)
+  if (guest) {
+    if (body.adult !== true) return json({ ok: false, reason: "adult" }, 400); // the 18+ box must be ticked
+  } else {
+    const age = ageOn(body.birthDate ?? "", todayIndia()); // whole years
+    if (age === null) return json({ ok: false, reason: "bad_date" }, 400); // not a real date
+    if (age < MIN_AGE) { await db.auth.admin.deleteUser(who.user.id); return json({ ok: false, reason: "under18" }, 403); } // refuse and remove the login
+  }
   if (body.acceptTerms !== true) return json({ ok: false, reason: "terms" }, 400); // must tick the box themselves
   const nickname = (body.nickname ?? "").trim().replace(/\s+/g, " ").slice(0, 24); // tidy nickname
   if (!nickname) return json({ ok: false, reason: "nickname" }, 400); // required

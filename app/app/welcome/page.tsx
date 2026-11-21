@@ -25,6 +25,7 @@ export default function Welcome() {
     setNickname((n) => n || suggestNickname()); // fewer decisions: a ready-made nickname they can change
     loadAccount(true).then((a) => {
       if (a.state === "signed_out") window.location.href = "/signin"; // sign in first
+      else if (a.state === "needs_onboarding" && a.guest) window.location.href = "/"; // guests finish with the one 18+ box on the front page
       else if (a.state === "ready") window.location.href = "/"; // already done
       else setEmail(a.email); // show which address
     }).catch(() => setMsg("Couldn’t reach the library just now. Please reload and try again.")); // calm error line

@@ -3,7 +3,7 @@
 // Sign in or create an account with a one-time email link (no passwords).
 // Sign-up is open to anyone; the 18+ check happens on the next screen.
 
-import { useState } from "react"; // form state
+import { useEffect, useState } from "react"; // form state
 import { hasSupabase, supabase } from "@/lib/backend/client"; // auth
 import { loadAccount } from "@/lib/account"; // where to go after the code works
 
@@ -23,6 +23,8 @@ export default function SignIn() {
   const [code, setCode] = useState(""); // 6-digit code typed from the email (works on any device or browser)
   const [codeBusy, setCodeBusy] = useState(false); // checking the code
   const [codeBad, setCodeBad] = useState(false); // wrong or expired code
+  const [guest, setGuest] = useState(false); // already at a desk as a guest on this device?
+  useEffect(() => { loadAccount().then((a) => setGuest(a.state !== "signed_out" && a.guest)).catch(() => {}); }, []); // check once
 
   // Send the magic link; it comes back to /auth/callback.
   const send = async (e: React.FormEvent) => {
@@ -75,11 +77,13 @@ export default function SignIn() {
       ) : (
         <form onSubmit={send}>
           <p className="muted small">New or returning, it’s the same: type your email and we send a one-tap link. No password, no forms to fill first.</p>
+          {guest && <p className="small muted">You’re studying here as a guest. Signing in to another account leaves your guest desk behind. To keep its hours and desk items, use <a href="/me#save-desk">Save your desk with email</a> instead.</p>}
           <label htmlFor="email">Email</label>
           <input id="email" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
           {stage === "error" && <p className="small muted">That didn’t send. Check the address and try again in a minute.</p>}
           <div className="actions"><button type="submit" className="sage" disabled={stage === "sending" || !email.includes("@")}>{stage === "sending" ? "Sending…" : "Send my link"}</button></div>
           <p className="small muted">Hush Hall is for people aged 18 and over. <a href="/rules">House rules</a> · <a href="/privacy">Privacy policy</a></p>
+          <p className="small muted">No account? You don’t need one. <a href="/">Take a desk with just a nickname</a>.</p>
         </form>
       )}
     </div>

@@ -15,7 +15,7 @@ import { TimetableDialog } from "./TimetableDialog"; // private weekly plan
 import { SpotifyPlayer } from "./SpotifyPlayer"; // optional Spotify embed
 import { DeskKitDialog, UnlockNote } from "./DeskKitDialog"; // quiet desk kit: place unlocked items, calm note after a recap
 import { DESK_SPOTS, loadMyDeskKit, saveDeskSpots, type DeskItemId, type DeskKit, type DeskSpots } from "@/lib/deskKit"; // study days + desk items
-import { HALLS, ROWS, DESKS_PER_ROW, demoMembers, hallById } from "@/lib/halls"; // hall data
+import { HALLS, ROWS, DESKS_PER_ROW, ALL_SEATS, demoMembers, hallById } from "@/lib/halls"; // hall data
 import { getPresence, type JoinRequest, type Member, type Phase, type WalkState } from "@/lib/presence"; // presence layer
 import { ENTRANCE, standSpot } from "./three/walk"; // where a walk starts (tiny module: no three.js)
 import { PLACE_BY_SEAT } from "./three/layout"; // seat -> chair position (tiny data module: no three.js)
@@ -114,6 +114,8 @@ export default function HallView({ hallId }: { hallId: string }) {
   const [unlocked, setUnlocked] = useState<DeskItemId[] | null>(null); // items that just unlocked (shown calmly after a recap only)
   const [fresh, setFresh] = useState<DeskItemId[]>([]); // the same items, marked "new" in the desk dialog
 
+  const [wantDesk, setWantDesk] = useState<string | null>(null); // desk asked for on the front page (?desk=), opened once
+
   const phaseRef = useRef(phase); // latest phase for presence callbacks
   phaseRef.current = phase; // keep it current every render
 
@@ -128,8 +130,8 @@ export default function HallView({ hallId }: { hallId: string }) {
     let live = true; // ignore results after unmount
     loadAccount().then(async (a) => {
       if (!live) return; // navigated away
-      if (a.state === "signed_out") { window.location.href = `/signin?next=${encodeURIComponent(`/hall/${hallId}`)}`; return; } // sign in first
-      if (a.state === "needs_onboarding") { window.location.href = "/welcome"; return; } // finish sign-up (18+) first
+      if (a.state === "signed_out") { window.location.href = `/?next=${encodeURIComponent(`/hall/${hallId}`)}`; return; } // front page first: a nickname (guest) or sign in
+      if (a.state === "needs_onboarding") { window.location.href = a.guest ? `/?next=${encodeURIComponent(`/hall/${hallId}`)}` : "/welcome"; return; } // finish the 18+ step first (guests on the front page, email accounts on /welcome)
       const p = a.profile; // my profile
       if (!p.name.trim()) p.name = "Guest"; // demo fallback name if they skipped the lobby
       setProfile(p); // store it
@@ -147,6 +149,7 @@ export default function HallView({ hallId }: { hallId: string }) {
     const saved = (q.get("view") ?? localStorage.getItem("hh.view")) as "3d" | "2d" | null; // URL or saved choice
     setView(ok && saved !== "2d" ? "3d" : "2d"); // 3D by default when available
     setForceHover(q.get("hover")); // optional forced hover
+    setWantDesk(q.get("desk")); // ?desk=B3 (or "any") from the front page: open the sit step once the hall has loaded
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)"); // OS motion setting
     setReduced(prefersReducedMotion()); // initial value
     const onMq = () => setReduced(mq.matches); // live updates
@@ -438,6 +441,24 @@ export default function HallView({ hallId }: { hallId: string }) {
     setProfile(next); // re-render
     saveProfile(next).then((ok) => { if (!ok) say("That change wasn’t saved. Try a different nickname?"); }); // persist (database or local)
   };
+
+  // Coming from the front page with ?desk=: once people have had a moment to
+  // load, open the sit step for that desk (or my usual / the first free desk).
+  // Runs once, then tidies the address bar so a reload doesn't ask again.
+  const seatMapRef = useRef(seatMap); // latest seat map, read when the timer fires (so live updates don't keep restarting it)
+  seatMapRef.current = seatMap; // keep it current every render
+  useEffect(() => {
+    if (!wantDesk || !profile || seat) return; // nothing asked, not ready, or already seated
+    const t = window.setTimeout(() => {
+      const free = (s: string) => { const o = seatMapRef.current.get(s); return !o || !!o.isAmbient; }; // empty, or a companion who gives way
+      const pick = wantDesk !== "any" && ALL_SEATS.includes(wantDesk) && free(wantDesk) ? wantDesk : usual && free(usual) ? usual : ALL_SEATS.find(free) ?? null; // asked-for desk, else usual, else first free (front to back)
+      if (wantDesk !== "any" && pick !== wantDesk) say(`Desk ${wantDesk} was just taken, so here’s another.`); // gentle note
+      if (pick) setSitAt(pick); // open the sit step (topic, then the timer)
+      setWantDesk(null); // only once
+      window.history.replaceState(null, "", window.location.pathname); // drop ?desk= from the address
+    }, 1200); // setting: give presence ~1 s to show who is seated
+    return () => clearTimeout(t); // re-run if things change before it fires
+  }, [wantDesk, profile, seat, usual, say]);
 
   // Tap on a desk: sit if vacant and I am standing; open desk card if occupied.
   const onDesk = (s: string) => {

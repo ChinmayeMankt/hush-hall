@@ -9,6 +9,7 @@ import { callApi, hasSupabase } from "@/lib/backend/client"; // delete route
 import { showUpSummary, weekSummary, type Profile, type Sitting } from "@/lib/profile"; // summaries
 import { hallById } from "@/lib/halls"; // hall names
 import { ALERT_OPTIONS, getAlertSound, playAlert, saveAlertSound, type AlertSound } from "@/lib/chime"; // timer alert sounds
+import { saveDeskWithEmail, confirmEmailCode } from "@/lib/guest"; // guests: attach an email to the same account
 
 export default function Me() {
   const [profile, setProfile] = useState<Profile | null>(null); // my card
@@ -22,12 +23,20 @@ export default function Me() {
   const [delOpen, setDelOpen] = useState(false); // second step shown?
   const [delBusy, setDelBusy] = useState(false); // request in flight
   const [delMsg, setDelMsg] = useState(""); // result line next to the button
+  // Guests (no email yet): an optional, quiet "save your desk with email" card.
+  const [guest, setGuest] = useState(false); // signed in without an email?
+  const [saveEmail, setSaveEmail] = useState(""); // address typed
+  const [saveStage, setSaveStage] = useState<"form" | "sending" | "sent" | "taken" | "error" | "done">("form"); // progress
+  const [saveCode, setSaveCode] = useState(""); // code from the email (any device)
+  const [codeBad, setCodeBad] = useState(false); // wrong or expired code
+  const [outAsk, setOutAsk] = useState(false); // guest pressed "Sign out": ask once, because a guest can't sign back in
 
   // Load my account and history.
   useEffect(() => {
     loadAccount().then(async (a) => {
       if (a.state === "signed_out") { window.location.href = "/signin?next=/me"; return; } // sign in first
-      if (a.state === "needs_onboarding") { window.location.href = "/welcome"; return; } // finish sign-up
+      if (a.state === "needs_onboarding") { window.location.href = a.guest ? "/" : "/welcome"; return; } // finish sign-up (guests: the 18+ box on the front page)
+      setGuest(a.guest); // show the save-with-email card for guests only
       setProfile(a.profile); setHistory(await loadHistory()); // show
     }).catch(() => setLoadFailed(true)); // don't hang on the loading line
   }, []);
@@ -74,9 +83,36 @@ export default function Me() {
           <span className="small muted">Saved on this device.</span>
           <span className="toggle"><input type="checkbox" checked={profile.hideFromRequests} onChange={(e) => patch({ hideFromRequests: e.target.checked })} /> Hide me from study-room requests</span>
           {msg && <p className="small muted">{msg}</p>}
-          {hasSupabase && <div className="actions"><button className="ghost small" onClick={async () => { await signOut(); window.location.href = "/"; }}>Sign out</button></div>}
+          {hasSupabase && <div className="actions"><button className="ghost small" onClick={async () => { if (guest && !outAsk) { setOutAsk(true); return; } await signOut(); window.location.href = "/"; }}>{guest && outAsk ? "Sign out anyway" : "Sign out"}</button></div>}
+          {guest && outAsk && <p className="small muted">You’re a guest, so there’s no way to sign back in to this desk later. Its hours and desk items stay with this account unless you save it with an email below first.</p>}
         </section>
       </div>
+
+      {/* Guests only: keep this desk (hours, study days, desk items) by adding an email to the same account. Optional; never shown during focus. */}
+      {guest && (
+        <section className="card" id="save-desk" style={{ marginTop: 16 }}>
+          <h2>Save your desk with email</h2>
+          {saveStage === "done" ? <p className="small">Saved. Your desk, hours and desk items now stay with {saveEmail.trim()}, and you can sign in with it on any device.</p>
+            : saveStage === "sent" ? (
+              <form onSubmit={async (e) => { e.preventDefault(); setCodeBad(false); if (await confirmEmailCode(saveEmail, saveCode)) { setSaveStage("done"); setGuest(false); } else setCodeBad(true); }}>
+                <p className="small">We sent a confirmation to <b>{saveEmail.trim()}</b>. Tap the link in it on this device, or type the code from it here.</p>
+                <label htmlFor="savecode">Code from the email</label>
+                <input id="savecode" inputMode="numeric" autoComplete="one-time-code" maxLength={10} value={saveCode} onChange={(e) => setSaveCode(e.target.value.replace(/\D/g, ""))} placeholder="123456" />
+                {codeBad && <p className="small muted">That code didn’t work. Check it, or tap the link in the email instead.</p>}
+                <div className="actions"><button type="submit" className="sage small" disabled={saveCode.length < 6}>Confirm</button><button type="button" className="ghost small" onClick={() => { setSaveStage("form"); setSaveCode(""); }}>Use another address</button></div>
+              </form>
+            ) : (
+              <form onSubmit={async (e) => { e.preventDefault(); setSaveStage("sending"); setSaveStage(await saveDeskWithEmail(saveEmail).catch(() => "error" as const)); }}>
+                <p className="small muted">You’re here as a guest. If you like, add an email so this same desk, with its hours and desk items, stays yours on any device. Optional, and nothing changes if you don’t.</p>
+                <label htmlFor="saveemail">Email</label>
+                <input id="saveemail" type="email" autoComplete="email" value={saveEmail} onChange={(e) => { setSaveEmail(e.target.value); if (saveStage !== "sending") setSaveStage("form"); }} placeholder="you@example.com" />
+                {saveStage === "taken" && <p className="small muted">That email already has a Hush Hall account. You can sign in with it instead, but this guest desk won’t move across.</p>}
+                {saveStage === "error" && <p className="small muted">That didn’t send. Check the address and try again in a minute.</p>}
+                <div className="actions"><button type="submit" className="sage small" disabled={saveStage === "sending" || !saveEmail.includes("@")}>{saveStage === "sending" ? "Sending…" : "Save my desk"}</button></div>
+              </form>
+            )}
+        </section>
+      )}
 
       <section className="card" style={{ marginTop: 16 }}>
         <h2>Sittings</h2>
@@ -91,7 +127,7 @@ export default function Me() {
       {hasSupabase && (
         <section className="card" id="delete-account" style={{ marginTop: 16 }}>
           <h2>Delete account</h2>
-          <p className="small muted">This permanently deletes your Hush Hall account: your login and email address, profile and settings, sittings and recaps, desk notes and any share links, timetable, study days and desk items, usual desks, walking position, blocks, requests, study-room memberships, notices, and reports you filed or that were filed about you. It can’t be undone. <a href="/privacy#delete">Privacy policy</a></p>
+          <p className="small muted">This permanently deletes your Hush Hall account: your login and email address (if you added one), profile and settings, sittings and recaps, desk notes and any share links, timetable, study days and desk items, usual desks, walking position, blocks, requests, study-room memberships, notices, and reports you filed or that were filed about you. It can’t be undone. <a href="/privacy#delete">Privacy policy</a></p>
           {!delOpen ? (
             <div className="actions"><button className="ghost" onClick={() => setDelOpen(true)}>Delete my account…</button></div>
           ) : (
