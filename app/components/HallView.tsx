@@ -39,6 +39,9 @@ import { GuestPrompt } from "./GuestPrompt"; // nickname + 18+ step for visitors
 import { hallPreview } from "@/lib/guest"; // who is seated, for visitors who haven't entered yet
 import { AVATARS } from "@/lib/profile"; // default avatar for the visitor stand-in
 
+// Buttons a visitor can press before they have a name; the hall carries them on after the nickname step.
+type GuestAction = "walk" | "wardrobe" | "desk"; // Walk around, Wardrobe, Desk (desk items)
+
 // A calm, warm stand-in while the 3D code and characters load (never a blank box).
 function LampsPlaceholder({ text }: { text: string }) {
   return (
@@ -133,7 +136,8 @@ export default function HallView({ hallId, home = false }: { hallId: string; hom
 
   const [wantDesk, setWantDesk] = useState<string | null>(null); // desk asked for on the front page (?desk=), opened once
   const [visitor, setVisitor] = useState(false); // looking around without a name yet (front page only)
-  const [askGuest, setAskGuest] = useState<{ desk: string | null } | null>(null); // nickname + 18+ prompt open (and the desk they tapped)
+  const [askGuest, setAskGuest] = useState<{ desk: string | null; then: GuestAction | null } | null>(null); // nickname + 18+ prompt open, the desk they tapped, and the button they pressed
+  const [wantThen, setWantThen] = useState<GuestAction | null>(null); // the button pressed before the nickname step (?then=), carried on once after the reload
 
   const phaseRef = useRef(phase); // latest phase for presence callbacks
   phaseRef.current = phase; // keep it current every render
@@ -175,6 +179,8 @@ export default function HallView({ hallId, home = false }: { hallId: string; hom
     setView(ok && saved !== "2d" ? "3d" : "2d"); // 3D by default when available
     setForceHover(q.get("hover")); // optional forced hover
     setWantDesk(q.get("desk")); // ?desk=B3 (or "any") after the nickname step: open the sit step once the hall has loaded
+    const th = q.get("then"); // ?then=walk|wardrobe|desk after the nickname step
+    setWantThen(th === "walk" || th === "wardrobe" || th === "desk" ? th : null); // only the known actions
     if (q.get("deleted") === "1") window.setTimeout(() => say("Your account and its data have been deleted."), 600); // after "Delete account", say it plainly once
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)"); // OS motion setting
     setReduced(prefersReducedMotion()); // initial value
@@ -284,13 +290,14 @@ export default function HallView({ hallId, home = false }: { hallId: string; hom
   }, [visitor, hallId]);
 
   // Visitors: anything that needs a name opens the nickname + 18+ prompt instead. True = prompt shown.
-  const needName = (desk: string | null = null) => { if (!visitor) return false; setAskGuest({ desk }); return true; }; // signed-in people carry on
+  const needName = (desk: string | null = null, then: GuestAction | null = null) => { if (!visitor) return false; setAskGuest({ desk, then }); return true; }; // signed-in people carry on; visitors remember what they pressed
 
   // After the nickname step: reload this page signed in, opening the desk they tapped (or the hall they came for).
   const entered = () => {
     const next = new URLSearchParams(window.location.search).get("next") ?? ""; // e.g. /hall/science-wing
     const base = /^\/hall\/[a-z-]+$/.test(next) ? next : window.location.pathname; // only hall pages, never another site
-    window.location.href = askGuest?.desk ? `${base}?desk=${encodeURIComponent(askGuest.desk)}` : base; // reload signed in
+    const q = askGuest?.desk ? `?desk=${encodeURIComponent(askGuest.desk)}` : askGuest?.then ? `?then=${askGuest.then}` : ""; // a desk goes on to the sit step; a button (walk, wardrobe, desk items) is pressed again for them
+    window.location.href = base + q; // reload signed in
   };
 
   // Push my state whenever it changes.
@@ -506,6 +513,18 @@ export default function HallView({ hallId, home = false }: { hallId: string; hom
     return () => clearTimeout(t); // re-run if things change before it fires
   }, [wantDesk, profile, seat, usual, say]);
 
+  // After the nickname step with ?then=: carry on with the button they pressed
+  // (start walking, open the wardrobe, or open the desk items), once, then tidy
+  // the address bar so a refresh doesn't do it again.
+  useEffect(() => {
+    if (!wantThen || !profile || visitor || seat) return; // nothing pending, not ready, still a visitor, or seated
+    if (wantThen === "walk") setWalk({ ...ENTRANCE, n: Date.now() }); // start walking from the entrance
+    if (wantThen === "wardrobe") setWardrobe(true); // open the wardrobe
+    if (wantThen === "desk") setKitOpen(true); // open "Your desk" (desk items)
+    setWantThen(null); // only once
+    window.history.replaceState(null, "", window.location.pathname); // drop ?then= from the address
+  }, [wantThen, profile, visitor, seat]);
+
   // Tap on a desk: sit if vacant and I am standing; open desk card if occupied.
   const onDesk = (s: string) => {
     const who = seatMap.get(s); // occupant
@@ -685,7 +704,7 @@ export default function HallView({ hallId, home = false }: { hallId: string; hom
           {webgl && (
             <button className="ghost small" onClick={() => chooseView(view === "3d" ? "2d" : "3d")}>{view === "3d" ? "Simple view" : "3D hall"}</button>
           )}
-          {!(view === "3d" && webgl) && phase !== "focus" && <button className="ghost small" onClick={() => needName() || setKitOpen(true)} title="Place the items you’ve unlocked">Desk</button>}
+          {!(view === "3d" && webgl) && phase !== "focus" && <button className="ghost small" onClick={() => needName(null, "desk") || setKitOpen(true)} title="Place the items you’ve unlocked">Desk</button>}
           {/* Hall hopping: only while standing, so a sitting always ends with a recap */}
           <select aria-label="Move to another hall" value={hallId} disabled={!!seat} title={seat ? "Stand up to hop halls" : "Move to another hall"} onChange={(e) => { window.location.href = `/hall/${e.target.value}`; }} style={{ width: "auto" }}>
             {HALLS.map((h) => <option key={h.id} value={h.id} disabled={!!h.comingSoon}>{h.name}{h.comingSoon ? " (coming soon)" : ""}</option>)}
@@ -712,13 +731,13 @@ export default function HallView({ hallId, home = false }: { hallId: string; hom
           <div className="frame-ctl">
             {!seat && (walking
               ? <button className="ghost small" onClick={() => setWalk(null)}>Stop walking</button>
-              : <button className="ghost small" onClick={() => needName() || setWalk({ ...ENTRANCE, n: Date.now() })}>Walk around</button>)}
+              : <button className="ghost small" onClick={() => needName(null, "walk") || setWalk({ ...ENTRANCE, n: Date.now() })}>Walk around</button>)}
             {walking && (floor !== null
               ? <button className="ghost small" onClick={getUp} title="Get up (G)">Get up</button>
               : <button className="ghost small" onClick={() => setFloorAsk(true)} title="Sit on the floor here to study (G)">Sit on the floor</button>)}
             {walking && floor === null && <button className={`ghost small touch-only ${quick ? "on" : ""}`} aria-pressed={quick} onClick={() => setQuick((v) => !v)}>{quick ? "Usual pace" : "Quicker"}</button>}
-            <button className="ghost small" onClick={() => needName() || setWardrobe(true)}>Wardrobe</button>
-            {phase !== "focus" && <button className="ghost small" onClick={() => needName() || setKitOpen(true)} title="Place the items you’ve unlocked">Desk</button>}
+            <button className="ghost small" onClick={() => needName(null, "wardrobe") || setWardrobe(true)}>Wardrobe</button>
+            {phase !== "focus" && <button className="ghost small" onClick={() => needName(null, "desk") || setKitOpen(true)} title="Place the items you’ve unlocked">Desk</button>}
             {canFs && <button className="ghost small" onClick={toggleFs} title="Full screen (F). Esc to leave.">{fs ? "Exit full screen" : "Full screen"}</button>}
           </div>
           {/* One short line of help: while walking (fades), or the usual standing hint */}
