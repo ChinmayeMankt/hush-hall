@@ -57,6 +57,7 @@ The seated students are **VRoid sample characters by pixiv Inc. (VRoid Project),
 | Floor, rug, plaques, glow, shadows, rain glass | Canvas 2D drawings in `app/components/three/textures.ts` | Our own code |
 | Low-poly fallback avatars (used when a VRM can't load, or past the 12-model GPU budget) | `app/components/three/Avatar.tsx` | Our own code |
 | Rain ambience, chime | Web Audio synthesis (`app/lib/ambient.ts`, `app/lib/chime.ts`), no audio files | Our own code |
+| Background music (Warm Focus, Night Piano) | mp3 files in `app/public/`, listed in `app/lib/tracks.ts` | Original tracks made for Hush Hall |
 
 ## Libraries (npm; licence read from each package.json)
 - @pixiv/three-vrm 3.5.5: MIT

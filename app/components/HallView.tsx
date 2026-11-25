@@ -28,7 +28,7 @@ import { loadMyRoom, type Room } from "@/lib/rooms"; // small study rooms
 import RoomPanel from "./RoomPanel"; // room members, leave/remove, voice
 import { ReportDialog } from "./Dialogs"; // report with a reason
 import { ALERT_OPTIONS, getAlertSound, playAlert, saveAlertSound, unlockAudioOnFirstGesture, type AlertSound } from "@/lib/chime"; // timer alert sounds
-import { AMBIENT_OPTIONS, startAmbient, stopAmbient, type AmbientKind } from "@/lib/ambient"; // background sounds
+import { AMBIENT_OPTIONS, startAmbient, stopAmbient, isMusicKind, type AmbientKind } from "@/lib/ambient"; // background sounds
 import { playSitSound, playStandSound, playBreakSound, presenceSoundsEnabled, savePresenceSoundsEnabled } from "@/lib/presenceSounds"; // quiet, event-driven sounds for real students
 import { isRealStudent } from "@/lib/livePresence"; // tells real people apart from scripted companions
 import { startPageTurns, type PageTurnCandidate, type Listener } from "@/lib/pageTurns"; // soft page turns for real seated students
@@ -105,7 +105,7 @@ export default function HallView({ hallId, home = false }: { hallId: string; hom
   const [webgl, setWebgl] = useState(false); // can this device draw 3D?
   const [view, setView] = useState<"3d" | "2d">("2d"); // which hall view is shown
   const [reduced, setReduced] = useState(false); // prefers-reduced-motion
-  const [ambient, setAmbient] = useState<AmbientKind>("music"); // background sound (off by default)
+  const [ambient, setAmbient] = useState<AmbientKind>("music"); // default: all tracks in order (not persisted; this choice never was)
   const rain = ambient === "rain"; // window rain only for the rain sound
   const [alertSound, setAlertSound] = useState<AlertSound>("ping"); // timer alert sound (remembered on this device)
   const [presenceSound, setPresenceSound] = useState(true); // presence sounds on/off (real students sitting, standing, going on break)
@@ -189,10 +189,14 @@ export default function HallView({ hallId, home = false }: { hallId: string; hom
     return () => { live = false; mq.removeEventListener("change", onMq); }; // cleanup
   }, [hallId]);
 
-  // Rain ambience follows the toggle; always stops when leaving the hall.
+  // Background follows the dropdown. Music keeps playing if we leave the hall
+  // (walk, lobby, or a remount) so the playlist does not cut between tracks or pages.
+  // Noise beds still stop when leaving the hall, as they did before.
   useEffect(() => {
     startAmbient(ambient); // follow the dropdown ("off" stops it)
-    return () => stopAmbient(); // stop on unmount
+    return () => {
+      if (!isMusicKind(ambient)) stopAmbient(); // only stop rain/noise when this view goes away
+    };
   }, [ambient]);
 
   // Load the saved timer sound for this device.

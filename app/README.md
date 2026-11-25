@@ -33,4 +33,13 @@ node scripts/screenshots.mjs   # with dev server running; saves PNGs to ../scree
 - Re-optimise a VRoid VRM: `python3 scripts/optimize_vrm.py in.vrm public/models/out.vrm 512`.
 - Screenshots: `node scripts/screenshots3d.mjs` (headless Chrome with SwiftShader WebGL).
 
-Layout: `app/` (routes), `components/` (HallView, Desk, Dialogs), `lib/presence/` (interface + BroadcastChannel mock), `lib/halls.ts`, `lib/profile.ts`, `lib/chime.ts`, `lib/ambient.ts`, `lib/env.ts`, `components/three/` (Hall3D, Room, Desks, Avatar, VrmAvatar, Walking, walk, layout, textures), `lib/presence/walkers.ts` (live positions of people on foot).
+## Background music
+
+Tracks live in `public/` and are listed, in play order, in `lib/tracks.ts`. The default Background choice is **All tracks**: they play in that order and then start again. Picking one track in the menu loops only that track. Off stops the music. The playlist starts with the first click, tap or key after the app loads, and it keeps going if you walk around or open another page.
+
+To add a track:
+
+1. Put the mp3 in `public/` (same kind of file as the others: 48 kHz stereo mp3, about 160–192 kbps, so it stays light to load).
+2. Append one entry to `TRACKS` in `lib/tracks.ts` (`id`, `title`, `file`). That is enough: the All tracks loop and the Background menu both pick it up.
+
+Layout: `app/` (routes), `components/` (HallView, Desk, Dialogs), `lib/presence/` (interface + BroadcastChannel mock), `lib/halls.ts`, `lib/profile.ts`, `lib/chime.ts`, `lib/ambient.ts`, `lib/tracks.ts`, `lib/env.ts`, `components/three/` (Hall3D, Room, Desks, Avatar, VrmAvatar, Walking, walk, layout, textures), `lib/presence/walkers.ts` (live positions of people on foot).
